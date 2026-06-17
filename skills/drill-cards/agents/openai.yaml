@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drill Cards"
+  short_description: "Import training videos into DrillCard"
+  default_prompt: "Use $drill-cards to import a baseball training video link into the DrillCard table."
