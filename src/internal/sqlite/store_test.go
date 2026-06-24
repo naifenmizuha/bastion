@@ -5,20 +5,22 @@ import (
 	"strings"
 	"testing"
 
-	"bastion/internal/domain"
+	"bastion/internal/domain/game"
+	"bastion/internal/domain/player"
+	"bastion/internal/domain/report"
 )
 
 func TestStorePlayerLifecycle(t *testing.T) {
 	store := newTestStore(t)
 
-	player := domain.Player{
+	p := player.Player{
 		Name:      "张三",
 		Number:    18,
-		Bat:       domain.HandRight,
-		Throw:     domain.HandRight,
-		Positions: domain.PositionPitcher | domain.PositionInfield,
+		Bat:       player.HandRight,
+		Throw:     player.HandRight,
+		Positions: player.PositionPitcher | player.PositionInfield,
 	}
-	if err := store.AddPlayer(player); err != nil {
+	if err := store.AddPlayer(p); err != nil {
 		t.Fatalf("AddPlayer failed: %v", err)
 	}
 
@@ -26,7 +28,7 @@ func TestStorePlayerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPlayer failed: %v", err)
 	}
-	if got != player {
+	if got != p {
 		t.Fatalf("unexpected player: %+v", got)
 	}
 
@@ -39,7 +41,7 @@ WHERE name = ?
 	if err != nil {
 		t.Fatalf("raw player query failed: %v", err)
 	}
-	if batBits != int(domain.HandRight) || throwBits != int(domain.HandRight) || positionBits != int(domain.PositionPitcher|domain.PositionInfield) {
+	if batBits != int(player.HandRight) || throwBits != int(player.HandRight) || positionBits != int(player.PositionPitcher|player.PositionInfield) {
 		t.Fatalf("unexpected raw bits: bat=%d throw=%d positions=%d", batBits, throwBits, positionBits)
 	}
 
@@ -54,12 +56,12 @@ WHERE name = ?
 
 func TestStoreRejectsDuplicatePlayer(t *testing.T) {
 	store := newTestStore(t)
-	player := domain.Player{Name: "张三", Number: 18, Bat: domain.HandRight, Throw: domain.HandRight, Positions: domain.PositionPitcher}
+	p := player.Player{Name: "张三", Number: 18, Bat: player.HandRight, Throw: player.HandRight, Positions: player.PositionPitcher}
 
-	if err := store.AddPlayer(player); err != nil {
+	if err := store.AddPlayer(p); err != nil {
 		t.Fatalf("first AddPlayer failed: %v", err)
 	}
-	err := store.AddPlayer(player)
+	err := store.AddPlayer(p)
 	if err == nil {
 		t.Fatal("expected duplicate player to fail")
 	}
@@ -70,17 +72,17 @@ func TestStoreRejectsDuplicatePlayer(t *testing.T) {
 
 func TestStoreReportLifecycleAndOverwrite(t *testing.T) {
 	store := newTestStore(t)
-	player := domain.Player{Name: "张三", Number: 18, Bat: domain.HandRight, Throw: domain.HandRight, Positions: domain.PositionPitcher}
-	if err := store.AddPlayer(player); err != nil {
+	p := player.Player{Name: "张三", Number: 18, Bat: player.HandRight, Throw: player.HandRight, Positions: player.PositionPitcher}
+	if err := store.AddPlayer(p); err != nil {
 		t.Fatalf("AddPlayer failed: %v", err)
 	}
 
-	first := domain.Report{Name: "张三", Date: "2026-06-24", Content: "挥棒训练", Reflection: "节奏更稳定"}
+	first := report.Report{Name: "张三", Date: "2026-06-24", Content: "挥棒训练", Reflection: "节奏更稳定"}
 	if err := store.UpsertReport(first); err != nil {
 		t.Fatalf("first UpsertReport failed: %v", err)
 	}
 
-	second := domain.Report{Name: "张三", Date: "2026-06-24", Content: "守备训练", Reflection: "脚步更主动"}
+	second := report.Report{Name: "张三", Date: "2026-06-24", Content: "守备训练", Reflection: "脚步更主动"}
 	if err := store.UpsertReport(second); err != nil {
 		t.Fatalf("second UpsertReport failed: %v", err)
 	}
@@ -111,6 +113,154 @@ func TestStoreReturnsNotFoundErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "report not found: 不存在 2026-06-24") {
 		t.Fatalf("unexpected report error: %v", err)
+	}
+}
+
+func TestStoreGameLifecycle(t *testing.T) {
+	store := newTestStore(t)
+	order := 1
+	position := 1
+
+	gameID, err := store.CreateGame(
+		game.Game{
+			Date:          "2026-06-24",
+			StartTime:     "19:30",
+			Opponent:      "海港队",
+			BattingSide:   game.BattingSideTop,
+			OwnScore:      5,
+			OpponentScore: 3,
+			IsFinal:       true,
+			Raw:           "6月24日对海港队，先攻，5:3获胜",
+		},
+		[]game.GameLineup{{
+			Team:             game.TeamOwn,
+			Player:           "张三",
+			BattingOrder:     &order,
+			StartingPosition: &position,
+		}},
+		[]game.PlateAppearance{{
+			Inning:        1,
+			Half:          game.HalfTop,
+			Batter:        "张三",
+			Pitcher:       "李四",
+			EventType:     game.EventTypeSingle,
+			PitchSequence: "B,S,X",
+			Outs:          0,
+			BaseState:     0,
+			RunsScored:    0,
+			Description:   "张三中前安打",
+		}},
+	)
+	if err != nil {
+		t.Fatalf("CreateGame failed: %v", err)
+	}
+	if gameID != 1 {
+		t.Fatalf("unexpected game id: %d", gameID)
+	}
+
+	details, err := store.GetGame(gameID)
+	if err != nil {
+		t.Fatalf("GetGame failed: %v", err)
+	}
+	if details.Game.Opponent != "海港队" || !details.Game.IsFinal || len(details.Lineups) != 1 || len(details.Events) != 1 {
+		t.Fatalf("unexpected details: %+v", details)
+	}
+
+	unfinalID, err := store.CreateGame(game.Game{
+		Date:        "2026-06-25",
+		Opponent:    "山城队",
+		BattingSide: game.BattingSideBottom,
+		Raw:         "6月25日对山城队",
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateGame unfinal failed: %v", err)
+	}
+	lineupID, err := store.AddGameLineup(game.GameLineup{GameID: unfinalID, Team: game.TeamOwn, Player: "王五"})
+	if err != nil {
+		t.Fatalf("AddGameLineup failed: %v", err)
+	}
+	if lineupID != 2 {
+		t.Fatalf("unexpected lineup id: %d", lineupID)
+	}
+	eventID, err := store.AddPlateAppearance(game.PlateAppearance{
+		GameID:      unfinalID,
+		Inning:      1,
+		Half:        game.HalfTop,
+		Batter:      "王五",
+		EventType:   game.EventTypeWalk,
+		Outs:        0,
+		BaseState:   0,
+		Description: "王五保送",
+	})
+	if err != nil {
+		t.Fatalf("AddPlateAppearance failed: %v", err)
+	}
+	if eventID != 2 {
+		t.Fatalf("unexpected event id: %d", eventID)
+	}
+	if err := store.SetGameScore(unfinalID, 7, 6); err != nil {
+		t.Fatalf("SetGameScore failed: %v", err)
+	}
+	details, err = store.GetGame(unfinalID)
+	if err != nil {
+		t.Fatalf("GetGame after score failed: %v", err)
+	}
+	if !details.Game.IsFinal || details.Game.OwnScore != 7 || details.Game.OpponentScore != 6 {
+		t.Fatalf("score was not saved: %+v", details.Game)
+	}
+}
+
+func TestStoreCreateGameRollsBackWhenChildInsertFails(t *testing.T) {
+	store := newTestStore(t)
+
+	_, err := store.CreateGame(
+		game.Game{
+			Date:        "2026-06-24",
+			Opponent:    "海港队",
+			BattingSide: game.BattingSideTop,
+			Raw:         "raw",
+		},
+		nil,
+		[]game.PlateAppearance{{
+			Inning:      1,
+			Half:        game.HalfTop,
+			Batter:      "张三",
+			EventType:   game.EventTypeSingle,
+			Outs:        3,
+			BaseState:   0,
+			Description: "invalid outs",
+		}},
+	)
+	if err == nil {
+		t.Fatal("expected invalid child insert to fail")
+	}
+
+	games, err := store.ListGames(game.GameListFilter{})
+	if err != nil {
+		t.Fatalf("ListGames failed: %v", err)
+	}
+	if len(games) != 0 {
+		t.Fatalf("expected rollback to leave no games, got %+v", games)
+	}
+}
+
+func TestStoreGameNotFound(t *testing.T) {
+	store := newTestStore(t)
+
+	_, err := store.GetGame(999)
+	if err == nil {
+		t.Fatal("expected missing game to fail")
+	}
+	if !strings.Contains(err.Error(), "game not found: 999") {
+		t.Fatalf("unexpected get error: %v", err)
+	}
+
+	_, err = store.AddGameLineup(game.GameLineup{GameID: 999, Team: game.TeamOwn, Player: "张三"})
+	if err == nil {
+		t.Fatal("expected missing game lineup add to fail")
+	}
+	if !strings.Contains(err.Error(), "game not found: 999") {
+		t.Fatalf("unexpected lineup error: %v", err)
 	}
 }
 
