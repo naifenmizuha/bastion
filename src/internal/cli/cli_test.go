@@ -260,6 +260,33 @@ func TestHelpTextDescribesStringChoices(t *testing.T) {
 				"Filter by recommender name.",
 				"Filter by drill type:",
 				"pitching,catching,hitting,strength,baserunning,infield,outfield.",
+				"Filter by approval status: pending,approved,rejected.",
+			},
+		},
+		{
+			name: "drill recommend approve",
+			args: []string{"drill", "recommend", "approve", "-h"},
+			wantParts: []string{
+				"Recommendation id, > 0.",
+				"Reviewer name; must be a registered player when",
+				"provided.",
+			},
+		},
+		{
+			name: "drill recommend reject",
+			args: []string{"drill", "recommend", "reject", "-h"},
+			wantParts: []string{
+				"Recommendation id, > 0.",
+				"Reviewer name; must be a registered player when",
+				"provided.",
+			},
+		},
+		{
+			name: "drill library list",
+			args: []string{"drill", "library", "list", "-h"},
+			wantParts: []string{
+				"Filter by drill type:",
+				"pitching,catching,hitting,strength,baserunning,infield,outfield.",
 			},
 		},
 	}
@@ -797,6 +824,155 @@ func TestDrillRecommendWriteRejectsEmptyFields(t *testing.T) {
 		if !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("unexpected error for %q: %v", c.want, err)
 		}
+	}
+}
+
+func TestDrillRecommendApproveRejectAndLibraryList(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	// 写入两条推荐：id=1 内野、id=2 投球。
+	if _, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三", "--url", "https://example.com/a", "--reason", "步伐好",
+		"--type", "infield", "--summary", "讲解内野扑球"); err != nil {
+		t.Fatalf("drill recommend write 1 failed: %v", err)
+	}
+	if _, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三", "--url", "https://example.com/b", "--reason", "发力",
+		"--type", "pitching", "--summary", "投球发力链"); err != nil {
+		t.Fatalf("drill recommend write 2 failed: %v", err)
+	}
+
+	// 默认列表展示 pending 状态。
+	out, err := runCommand(dbPath, "drill", "recommend", "list")
+	if err != nil {
+		t.Fatalf("drill recommend list failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "status = 'pending'") {
+		t.Fatalf("expected pending status in list output: %q", out)
+	}
+	if strings.Contains(out, "reviewed_by") || strings.Contains(out, "reviewed_at") {
+		t.Fatalf("expected reviewed_by/reviewed_at omitted when pending: %q", out)
+	}
+
+	// 通过 id=1（带审批人），驳回 id=2（不带审批人）。
+	out, err = runCommand(dbPath, "drill", "recommend", "approve", "--id", "1", "--reviewer", "张三")
+	if err != nil {
+		t.Fatalf("drill recommend approve failed: %v", err)
+	}
+	if !strings.Contains(out, "drill recommendation approved: 1") {
+		t.Fatalf("unexpected approve output: %q", out)
+	}
+	if _, err := runCommand(dbPath, "drill", "recommend", "reject", "--id", "2"); err != nil {
+		t.Fatalf("drill recommend reject failed: %v", err)
+	}
+
+	// --status 过滤：approved 仅含 id=1。
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--status", "approved")
+	if err != nil {
+		t.Fatalf("drill recommend list approved failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "id = 1") || strings.Contains(out, "id = 2") {
+		t.Fatalf("expected only id=1 approved, got %q", out)
+	}
+	if !strings.Contains(out, "status = 'approved'") || !strings.Contains(out, "reviewed_by = '张三'") || !strings.Contains(out, "reviewed_at = ") {
+		t.Fatalf("expected approved row with reviewer, got %q", out)
+	}
+
+	// --status 过滤：rejected 仅含 id=2。
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--status", "rejected")
+	if err != nil {
+		t.Fatalf("drill recommend list rejected failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "id = 2") || strings.Contains(out, "id = 1") {
+		t.Fatalf("expected only id=2 rejected, got %q", out)
+	}
+	if !strings.Contains(out, "status = 'rejected'") {
+		t.Fatalf("expected rejected status, got %q", out)
+	}
+	if strings.Contains(out, "reviewed_by") {
+		t.Fatalf("expected reviewed_by omitted when empty, got %q", out)
+	}
+
+	// --status 过滤：pending 为空。
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--status", "pending")
+	if err != nil {
+		t.Fatalf("drill recommend list pending failed: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected empty pending list, got %q", out)
+	}
+
+	// library list 等价于 --status approved。
+	out, err = runCommand(dbPath, "drill", "library", "list")
+	if err != nil {
+		t.Fatalf("drill library list failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "id = 1") || strings.Contains(out, "id = 2") {
+		t.Fatalf("library list should only show approved, got %q", out)
+	}
+
+	// library list --type 过滤。
+	out, err = runCommand(dbPath, "drill", "library", "list", "--type", "infield")
+	if err != nil {
+		t.Fatalf("drill library list infield failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "type = 'infield'") || strings.Contains(out, "type = 'pitching'") {
+		t.Fatalf("library list infield filter wrong: %q", out)
+	}
+
+	// 反复审批覆盖旧值。
+	if _, err := runCommand(dbPath, "drill", "recommend", "approve", "--id", "2", "--reviewer", "张三"); err != nil {
+		t.Fatalf("drill recommend re-approve failed: %v", err)
+	}
+	out, err = runCommand(dbPath, "drill", "library", "list")
+	if err != nil {
+		t.Fatalf("drill library list after re-approve failed: %v", err)
+	}
+	if !strings.Contains(out, "id = 1") || !strings.Contains(out, "id = 2") {
+		t.Fatalf("expected both approved after re-approve, got %q", out)
+	}
+}
+
+func TestDrillRecommendApproveRejectErrors(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	// --id 不存在。
+	_, err := runCommand(dbPath, "drill", "recommend", "approve", "--id", "999")
+	if err == nil {
+		t.Fatal("expected missing id to fail")
+	}
+	if !strings.Contains(err.Error(), "drill recommendation not found: 999") {
+		t.Fatalf("unexpected missing id error: %v", err)
+	}
+
+	// --reviewer 未注册。
+	if _, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三", "--url", "https://example.com", "--reason", "步伐",
+		"--type", "infield", "--summary", "讲解"); err != nil {
+		t.Fatalf("drill recommend write failed: %v", err)
+	}
+	_, err = runCommand(dbPath, "drill", "recommend", "approve", "--id", "1", "--reviewer", "陌生人")
+	if err == nil {
+		t.Fatal("expected unknown reviewer to fail")
+	}
+	if !strings.Contains(err.Error(), "player not found: 陌生人") {
+		t.Fatalf("unexpected unknown reviewer error: %v", err)
+	}
+
+	// 非法 --status。
+	_, err = runCommand(dbPath, "drill", "recommend", "list", "--status", "done")
+	if err == nil {
+		t.Fatal("expected invalid status to fail")
+	}
+	if !strings.Contains(err.Error(), `invalid --status "done"`) {
+		t.Fatalf("unexpected invalid status error: %v", err)
 	}
 }
 

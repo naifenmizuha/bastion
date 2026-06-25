@@ -147,11 +147,14 @@ type GameListCmd struct {
 
 type DrillCmd struct {
 	Recommend DrillRecommendCmd `cmd:"" help:"Manage drill recommendations."`
+	Library   DrillLibraryCmd   `cmd:"" help:"Manage the approved drill library."`
 }
 
 type DrillRecommendCmd struct {
-	Write DrillWriteCmd `cmd:"" help:"Write a drill recommendation."`
-	List  DrillListCmd  `cmd:"" help:"List drill recommendations."`
+	Write   DrillWriteCmd            `cmd:"" help:"Write a drill recommendation."`
+	List    DrillListCmd             `cmd:"" help:"List drill recommendations."`
+	Approve DrillRecommendApproveCmd `cmd:"" help:"Approve a drill recommendation."`
+	Reject  DrillRecommendRejectCmd  `cmd:"" help:"Reject a drill recommendation."`
 }
 
 type DrillWriteCmd struct {
@@ -163,7 +166,26 @@ type DrillWriteCmd struct {
 }
 
 type DrillListCmd struct {
-	Name string `help:"Filter by recommender name."`
+	Name   string `help:"Filter by recommender name."`
+	Type   string `help:"Filter by drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
+	Status string `help:"Filter by approval status: pending,approved,rejected."`
+}
+
+type DrillRecommendApproveCmd struct {
+	ID       int64  `required:"" help:"Recommendation id, > 0."`
+	Reviewer string `help:"Reviewer name; must be a registered player when provided."`
+}
+
+type DrillRecommendRejectCmd struct {
+	ID       int64  `required:"" help:"Recommendation id, > 0."`
+	Reviewer string `help:"Reviewer name; must be a registered player when provided."`
+}
+
+type DrillLibraryCmd struct {
+	List DrillLibraryListCmd `cmd:"" help:"List approved drills."`
+}
+
+type DrillLibraryListCmd struct {
 	Type string `help:"Filter by drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
 }
 
@@ -389,9 +411,47 @@ func (cmd *DrillListCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
+	status, err := parseOptionalRecommendationStatus(cmd.Status)
+	if err != nil {
+		return err
+	}
 	recommendations, err := ctx.DrillService.ListRecommendations(drill.ListFilter{
-		Name: cmd.Name,
-		Type: drillType,
+		Name:   cmd.Name,
+		Type:   drillType,
+		Status: status,
+	})
+	if err != nil {
+		return err
+	}
+	printDrillRecommendationList(ctx.Out, recommendations)
+	return nil
+}
+
+func (cmd *DrillRecommendApproveCmd) Run(ctx *Context) error {
+	if err := ctx.DrillService.ApproveRecommendation(cmd.ID, cmd.Reviewer); err != nil {
+		return err
+	}
+	fmt.Fprintf(ctx.Out, "drill recommendation approved: %d\n", cmd.ID)
+	return nil
+}
+
+func (cmd *DrillRecommendRejectCmd) Run(ctx *Context) error {
+	if err := ctx.DrillService.RejectRecommendation(cmd.ID, cmd.Reviewer); err != nil {
+		return err
+	}
+	fmt.Fprintf(ctx.Out, "drill recommendation rejected: %d\n", cmd.ID)
+	return nil
+}
+
+func (cmd *DrillLibraryListCmd) Run(ctx *Context) error {
+	drillType, err := parseOptionalDrillType(cmd.Type)
+	if err != nil {
+		return err
+	}
+	approved := drill.StatusApproved
+	recommendations, err := ctx.DrillService.ListRecommendations(drill.ListFilter{
+		Type:   drillType,
+		Status: &approved,
 	})
 	if err != nil {
 		return err
@@ -1012,24 +1072,30 @@ type drillRecommendationListTOML struct {
 }
 
 type drillRecommendationTOML struct {
-	ID        int64  `toml:"id"`
-	Name      string `toml:"name"`
-	Type      string `toml:"type"`
-	URL       string `toml:"url"`
-	Reason    string `toml:"reason"`
-	Summary   string `toml:"summary"`
-	CreatedAt string `toml:"created_at"`
+	ID         int64  `toml:"id"`
+	Name       string `toml:"name"`
+	Type       string `toml:"type"`
+	URL        string `toml:"url"`
+	Reason     string `toml:"reason"`
+	Summary    string `toml:"summary"`
+	Status     string `toml:"status"`
+	ReviewedBy string `toml:"reviewed_by,omitempty"`
+	ReviewedAt string `toml:"reviewed_at,omitempty"`
+	CreatedAt  string `toml:"created_at"`
 }
 
 func drillRecommendationTOMLFrom(row drill.Recommendation) drillRecommendationTOML {
 	return drillRecommendationTOML{
-		ID:        row.ID,
-		Name:      row.Name,
-		Type:      formatDrillType(row.Type),
-		URL:       row.URL,
-		Reason:    row.Reason,
-		Summary:   row.Summary,
-		CreatedAt: row.CreatedAt,
+		ID:         row.ID,
+		Name:       row.Name,
+		Type:       formatDrillType(row.Type),
+		URL:        row.URL,
+		Reason:     row.Reason,
+		Summary:    row.Summary,
+		Status:     formatRecommendationStatus(row.Status),
+		ReviewedBy: row.ReviewedBy,
+		ReviewedAt: row.ReviewedAt,
+		CreatedAt:  row.CreatedAt,
 	}
 }
 
@@ -1149,6 +1215,12 @@ var drillTypeOptions = []stringEnum[drill.DrillType]{
 	{label: "outfield", value: drill.DrillTypeOutfield},
 }
 
+var recommendationStatusOptions = []stringEnum[drill.RecommendationStatus]{
+	{label: "pending", value: drill.StatusPending},
+	{label: "approved", value: drill.StatusApproved},
+	{label: "rejected", value: drill.StatusRejected},
+}
+
 func parseBattingSide(raw string) (game.BattingSide, error) {
 	return parseStringEnum("--batting-side", raw, battingSideOptions, strings.ToLower)
 }
@@ -1205,6 +1277,17 @@ func parseOptionalDrillType(raw string) (*drill.DrillType, error) {
 		return nil, nil
 	}
 	value, err := parseDrillType(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func parseOptionalRecommendationStatus(raw string) (*drill.RecommendationStatus, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	value, err := parseStringEnum("--status", raw, recommendationStatusOptions, strings.ToLower)
 	if err != nil {
 		return nil, err
 	}
@@ -1275,6 +1358,10 @@ func formatOptionalStartingPosition(value *int) string {
 
 func formatDrillType(value drill.DrillType) string {
 	return formatStringEnum(value, drillTypeOptions)
+}
+
+func formatRecommendationStatus(value drill.RecommendationStatus) string {
+	return formatStringEnum(value, recommendationStatusOptions)
 }
 
 func formatGameResult(value game.GameResult) string {

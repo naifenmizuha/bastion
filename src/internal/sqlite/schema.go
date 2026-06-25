@@ -1,5 +1,7 @@
 package sqlite
 
+import "strings"
+
 func (s *Store) Init() error {
 	_, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS players (
@@ -191,8 +193,31 @@ CREATE TABLE IF NOT EXISTS drill_recommendations (
 	reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
 	type INTEGER NOT NULL CHECK(type BETWEEN 0 AND 6),
 	summary TEXT NOT NULL CHECK(length(trim(summary)) > 0),
+	status INTEGER NOT NULL DEFAULT 0 CHECK(status IN (0, 1, 2)),
+	reviewed_by TEXT,
+	reviewed_at TEXT,
 	created_at TEXT NOT NULL CHECK(length(trim(created_at)) > 0)
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// 旧库（建库时无审批三列）幂等升级：ADD COLUMN 已存在时 SQLite 报 "duplicate column"，忽略即可。
+	return s.migrateDrillRecommendations()
+}
+
+func (s *Store) migrateDrillRecommendations() error {
+	migrations := []string{
+		`ALTER TABLE drill_recommendations ADD COLUMN status INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE drill_recommendations ADD COLUMN reviewed_by TEXT`,
+		`ALTER TABLE drill_recommendations ADD COLUMN reviewed_at TEXT`,
+	}
+	for _, statement := range migrations {
+		if _, err := s.db.Exec(statement); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -10,6 +10,7 @@ type Repository interface {
 	PlayerExists(name string) (bool, error)
 	CreateRecommendation(r Recommendation) (int64, error)
 	ListRecommendations(filter ListFilter) ([]Recommendation, error)
+	ReviewRecommendation(id int64, status RecommendationStatus, reviewer string) error
 }
 
 type Service struct {
@@ -58,4 +59,31 @@ func (s *Service) WriteRecommendation(name string, url string, reason string, dr
 func (s *Service) ListRecommendations(filter ListFilter) ([]Recommendation, error) {
 	filter.Name = strings.TrimSpace(filter.Name)
 	return s.repo.ListRecommendations(filter)
+}
+
+// ApproveRecommendation 把指定推荐置为 approved，并记录审批人与审批时间。
+func (s *Service) ApproveRecommendation(id int64, reviewer string) error {
+	return s.reviewRecommendation(id, StatusApproved, reviewer)
+}
+
+// RejectRecommendation 把指定推荐置为 rejected，并记录审批人与审批时间。
+func (s *Service) RejectRecommendation(id int64, reviewer string) error {
+	return s.reviewRecommendation(id, StatusRejected, reviewer)
+}
+
+func (s *Service) reviewRecommendation(id int64, status RecommendationStatus, reviewer string) error {
+	if id <= 0 {
+		return fmt.Errorf("drill recommendation not found: %d", id)
+	}
+	reviewer = strings.TrimSpace(reviewer)
+	if reviewer != "" {
+		exists, err := s.repo.PlayerExists(reviewer)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("player not found: %s", reviewer)
+		}
+	}
+	return s.repo.ReviewRecommendation(id, status, reviewer)
 }

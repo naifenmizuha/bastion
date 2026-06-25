@@ -88,13 +88,83 @@ func TestServiceListRecommendationsTrimsNameFilter(t *testing.T) {
 	}
 }
 
+func TestServiceApproveRecommendationUpdatesStatus(t *testing.T) {
+	repo := &fakeRepo{existingPlayers: map[string]bool{"教练王": true}}
+	service := NewService(repo)
+
+	if err := service.ApproveRecommendation(1, "教练王"); err != nil {
+		t.Fatalf("ApproveRecommendation failed: %v", err)
+	}
+	if repo.reviewedID != 1 || repo.reviewedStatus != StatusApproved || repo.reviewedBy != "教练王" {
+		t.Fatalf("unexpected review call: id=%d status=%d reviewer=%q", repo.reviewedID, repo.reviewedStatus, repo.reviewedBy)
+	}
+}
+
+func TestServiceRejectRecommendationUpdatesStatus(t *testing.T) {
+	repo := &fakeRepo{existingPlayers: map[string]bool{"教练王": true}}
+	service := NewService(repo)
+
+	if err := service.RejectRecommendation(2, "教练王"); err != nil {
+		t.Fatalf("RejectRecommendation failed: %v", err)
+	}
+	if repo.reviewedID != 2 || repo.reviewedStatus != StatusRejected || repo.reviewedBy != "教练王" {
+		t.Fatalf("unexpected review call: id=%d status=%d reviewer=%q", repo.reviewedID, repo.reviewedStatus, repo.reviewedBy)
+	}
+}
+
+func TestServiceReviewRecommendationAllowsEmptyReviewer(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	if err := service.ApproveRecommendation(1, "  "); err != nil {
+		t.Fatalf("ApproveRecommendation with empty reviewer failed: %v", err)
+	}
+	if repo.reviewedBy != "" {
+		t.Fatalf("expected empty reviewer, got %q", repo.reviewedBy)
+	}
+	if repo.playerExistsCalled {
+		t.Fatal("expected PlayerExists to be skipped for empty reviewer")
+	}
+}
+
+func TestServiceReviewRecommendationRejectsUnknownReviewer(t *testing.T) {
+	repo := &fakeRepo{existingPlayers: map[string]bool{}}
+	service := NewService(repo)
+
+	err := service.ApproveRecommendation(1, "陌生人")
+	if err == nil {
+		t.Fatal("expected unknown reviewer to fail")
+	}
+	if !strings.Contains(err.Error(), "player not found: 陌生人") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestServiceReviewRecommendationRejectsNonPositiveID(t *testing.T) {
+	repo := &fakeRepo{existingPlayers: map[string]bool{"教练王": true}}
+	service := NewService(repo)
+
+	err := service.ApproveRecommendation(0, "教练王")
+	if err == nil {
+		t.Fatal("expected id=0 to fail")
+	}
+	if !strings.Contains(err.Error(), "drill recommendation not found: 0") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 type fakeRepo struct {
-	created         Recommendation
-	listFilter      ListFilter
-	existingPlayers map[string]bool
+	created            Recommendation
+	listFilter         ListFilter
+	existingPlayers    map[string]bool
+	playerExistsCalled bool
+	reviewedID         int64
+	reviewedStatus     RecommendationStatus
+	reviewedBy         string
 }
 
 func (r *fakeRepo) PlayerExists(name string) (bool, error) {
+	r.playerExistsCalled = true
 	return r.existingPlayers[name], nil
 }
 
@@ -106,4 +176,11 @@ func (r *fakeRepo) CreateRecommendation(rec Recommendation) (int64, error) {
 func (r *fakeRepo) ListRecommendations(filter ListFilter) ([]Recommendation, error) {
 	r.listFilter = filter
 	return nil, nil
+}
+
+func (r *fakeRepo) ReviewRecommendation(id int64, status RecommendationStatus, reviewer string) error {
+	r.reviewedID = id
+	r.reviewedStatus = status
+	r.reviewedBy = reviewer
+	return nil
 }
