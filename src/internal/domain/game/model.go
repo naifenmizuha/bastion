@@ -21,20 +21,74 @@ const (
 	HalfBottom
 )
 
-type EventType int
+type EventKind int
 
 const (
-	EventTypeOther EventType = iota
-	EventTypeSingle
-	EventTypeDouble
-	EventTypeTriple
-	EventTypeHomerun
-	EventTypeWalk
-	EventTypeStrikeout
-	EventTypeGroundout
-	EventTypeFlyout
-	EventTypeError
-	EventTypeSteal
+	EventKindPlateResult EventKind = iota
+	EventKindRunnerMovement
+	EventKindFieldingCredit
+)
+
+type PlateResult int
+
+const (
+	PlateResultSingle PlateResult = iota
+	PlateResultDouble
+	PlateResultTriple
+	PlateResultHomerun
+	PlateResultWalk
+	PlateResultHitByPitch
+	PlateResultStrikeout
+	PlateResultGroundout
+	PlateResultFlyout
+	PlateResultReachedOnError
+	PlateResultFieldersChoice
+	PlateResultSacrifice
+	PlateResultOther
+)
+
+type RunnerResult int
+
+const (
+	RunnerResultAdvance RunnerResult = iota
+	RunnerResultRunScored
+	RunnerResultOut
+)
+
+type RunnerReason int
+
+const (
+	RunnerReasonBattedBall RunnerReason = iota
+	RunnerReasonStolenBase
+	RunnerReasonCaughtStealing
+	RunnerReasonWildPitch
+	RunnerReasonPassedBall
+	RunnerReasonBalk
+	RunnerReasonPickoff
+	RunnerReasonError
+	RunnerReasonFieldersChoice
+	RunnerReasonOther
+)
+
+type FieldingResult int
+
+const (
+	FieldingResultPutout FieldingResult = iota
+	FieldingResultAssist
+	FieldingResultError
+	FieldingResultDoublePlay
+	FieldingResultPassedBall
+	FieldingResultOutfieldAssist
+	FieldingResultOther
+)
+
+type GameResult int
+
+const (
+	GameResultWin GameResult = iota
+	GameResultLoss
+	GameResultTie
+	GameResultInProgress
 )
 
 type Game struct {
@@ -59,27 +113,166 @@ type GameLineup struct {
 	StartingPosition *int   `json:"starting_position"`
 }
 
-type PlateAppearance struct {
-	ID            int64     `json:"id"`
-	GameID        int64     `json:"game_id"`
-	Inning        int       `json:"inning"`
-	Half          Half      `json:"half"`
-	Batter        string    `json:"batter"`
-	Pitcher       string    `json:"pitcher"`
-	EventType     EventType `json:"event_type"`
-	PitchSequence string    `json:"pitch_sequence"`
-	Outs          int       `json:"outs"`
-	BaseState     int       `json:"base_state"`
-	RunsScored    int       `json:"runs_scored"`
-	Description   string    `json:"description"`
+type GameEvent struct {
+	ID            int64         `json:"id"`
+	GameID        int64         `json:"game_id"`
+	Inning        int           `json:"inning"`
+	Half          Half          `json:"half"`
+	PlayNo        *int          `json:"play_no"`
+	Sequence      int           `json:"sequence"`
+	EventKind     EventKind     `json:"event_kind"`
+	Player        string        `json:"player"`
+	Team          Team          `json:"team"`
+	Result        int           `json:"result"`
+	RelatedPlayer string        `json:"related_player"`
+	PitchSequence string        `json:"pitch_sequence"`
+	BaseFrom      *int          `json:"base_from"`
+	BaseTo        *int          `json:"base_to"`
+	Reason        *RunnerReason `json:"reason"`
+	OutsOnPlay    int           `json:"outs_on_play"`
+	RunsScored    int           `json:"runs_scored"`
+	RBIPlayer     string        `json:"rbi_player"`
+	Earned        *bool         `json:"earned"`
+	Value         int           `json:"value"`
+	Description   string        `json:"description"`
 }
 
 type GameDetails struct {
 	Game    Game
 	Lineups []GameLineup
-	Events  []PlateAppearance
+	Events  []GameEvent
 }
 
 type GameListFilter struct {
 	Date string
+}
+
+type GameAnalysisResult struct {
+	Analysis    GameAnalysis
+	Summaries   []PlayerPerformanceSummary
+	Batting     []PlayerBattingStats
+	Baserunning []PlayerBaserunningStats
+	Pitching    []PlayerPitchingStats
+	Fielding    []PlayerFieldingStats
+	DataGaps    []AnalysisDataGap
+}
+
+type GameAnalysis struct {
+	ID              int64
+	GameID          int64
+	Date            string
+	Opponent        string
+	IsFinal         bool
+	Result          GameResult
+	OwnRuns         int
+	OpponentRuns    int
+	PlayersAnalyzed int
+	GeneratedAt     string
+}
+
+type PlayerPerformanceSummary struct {
+	ID                   int64
+	GameID               int64
+	Player               string
+	BattingOrder         *int
+	Positions            string
+	BattingAvailable     bool
+	BaserunningAvailable bool
+	PitchingAvailable    bool
+	FieldingAvailable    bool
+	Highlight            string
+	Risk                 string
+}
+
+type PlayerBattingStats struct {
+	ID                 int64
+	GameID             int64
+	Player             string
+	PA                 int
+	AtBats             int
+	Hits               int
+	Singles            int
+	Doubles            int
+	Triples            int
+	Homeruns           int
+	Walks              int
+	HitByPitch         int
+	Strikeouts         int
+	ReachedOnError     int
+	RunsBattedIn       int
+	TotalBases         int
+	BattingAverage     float64
+	OnBasePercentage   float64
+	SluggingPercentage float64
+	OPS                float64
+}
+
+type PlayerBaserunningStats struct {
+	ID                   int64
+	GameID               int64
+	Player               string
+	Runs                 int
+	StolenBases          int
+	CaughtStealing       int
+	StolenBaseAttempts   int
+	StolenBasePercentage float64
+	ExtraBasesTaken      int
+	BaserunningOuts      int
+}
+
+type PlayerPitchingStats struct {
+	ID                 int64
+	GameID             int64
+	Player             string
+	OutsRecorded       int
+	InningsPitched     float64
+	BattersFaced       int
+	HitsAllowed        int
+	WalksAllowed       int
+	Strikeouts         int
+	HomerunsAllowed    int
+	RunsAllowed        int
+	EarnedRuns         int
+	RA9                float64
+	ERA                *float64
+	WHIP               float64
+	StrikeoutWalkRatio *float64
+	WildPitches        int
+	Balks              int
+	Pickoffs           int
+	HitBatters         int
+}
+
+type PlayerFieldingStats struct {
+	ID                 int64
+	GameID             int64
+	Player             string
+	Positions          string
+	Putouts            int
+	Assists            int
+	Errors             int
+	TotalChances       int
+	FieldingPercentage float64
+	DoublePlays        int
+	PassedBalls        int
+	OutfieldAssists    int
+}
+
+type AnalysisDataGap struct {
+	ID      int64
+	GameID  int64
+	Scope   string
+	Message string
+}
+
+type GameAnalysisListItem struct {
+	GameID          int64
+	Date            string
+	Opponent        string
+	OwnRuns         int
+	OpponentRuns    int
+	Result          GameResult
+	IsFinal         bool
+	PlayersAnalyzed int
+	GeneratedAt     string
 }

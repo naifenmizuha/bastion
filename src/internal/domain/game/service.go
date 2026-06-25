@@ -4,17 +4,21 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"bastion/internal/domain/common"
 )
 
 type Repository interface {
-	CreateGame(game Game, lineups []GameLineup, events []PlateAppearance) (int64, error)
+	CreateGame(game Game, lineups []GameLineup, events []GameEvent) (int64, error)
 	AddGameLineup(lineup GameLineup) (int64, error)
-	AddPlateAppearance(event PlateAppearance) (int64, error)
+	AddGameEvents(gameID int64, events []GameEvent) (int, error)
 	SetGameScore(gameID int64, ownScore int, opponentScore int) error
 	GetGame(id int64) (GameDetails, error)
 	ListGames(filter GameListFilter) ([]Game, error)
+	ReplaceGameAnalysis(result GameAnalysisResult) error
+	GetGameAnalysis(gameID int64, player string) (GameAnalysisResult, error)
+	ListGameAnalyses() ([]GameAnalysisListItem, error)
 }
 
 type Service struct {
@@ -25,7 +29,7 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) WriteGame(dateRaw string, startTime string, opponent string, battingSide BattingSide, ownScore int, opponentScore int, raw string, lineups []GameLineup, events []PlateAppearance) (int64, error) {
+func (s *Service) WriteGame(dateRaw string, startTime string, opponent string, battingSide BattingSide, ownScore int, opponentScore int, raw string, lineups []GameLineup, events []GameEvent) (int64, error) {
 	game, err := prepareGame(dateRaw, startTime, opponent, battingSide, ownScore, opponentScore, true, raw)
 	if err != nil {
 		return 0, err
@@ -36,7 +40,7 @@ func (s *Service) WriteGame(dateRaw string, startTime string, opponent string, b
 		}
 	}
 	for i := range events {
-		if err := preparePlateAppearance(&events[i], 0); err != nil {
+		if err := prepareGameEvent(&events[i], 0); err != nil {
 			return 0, fmt.Errorf("invalid event %d: %w", i+1, err)
 		}
 	}
@@ -68,27 +72,19 @@ func (s *Service) AddGameLineup(gameID int64, team Team, player string, battingO
 	return s.repo.AddGameLineup(lineup)
 }
 
-func (s *Service) AddPlateAppearance(gameID int64, inning int, half Half, batter string, pitcher string, eventType EventType, pitchSequence string, outs int, baseState int, runsScored int, description string) (int64, error) {
+func (s *Service) WriteGameEvents(gameID int64, events []GameEvent) (int, error) {
 	if gameID <= 0 {
 		return 0, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
 	}
-	event := PlateAppearance{
-		GameID:        gameID,
-		Inning:        inning,
-		Half:          half,
-		Batter:        batter,
-		Pitcher:       pitcher,
-		EventType:     eventType,
-		PitchSequence: pitchSequence,
-		Outs:          outs,
-		BaseState:     baseState,
-		RunsScored:    runsScored,
-		Description:   description,
+	if len(events) == 0 {
+		return 0, errors.New("--events-json cannot be empty")
 	}
-	if err := preparePlateAppearance(&event, gameID); err != nil {
-		return 0, err
+	for i := range events {
+		if err := prepareGameEvent(&events[i], gameID); err != nil {
+			return 0, fmt.Errorf("invalid event %d: %w", i+1, err)
+		}
 	}
-	return s.repo.AddPlateAppearance(event)
+	return s.repo.AddGameEvents(gameID, events)
 }
 
 func (s *Service) SetGameScore(gameID int64, ownScore int, opponentScore int) error {
@@ -121,6 +117,35 @@ func (s *Service) ListGames(dateRaw string) ([]Game, error) {
 		filter.Date = date
 	}
 	return s.repo.ListGames(filter)
+}
+
+func (s *Service) GenerateGameAnalysis(gameID int64) (int64, error) {
+	if gameID <= 0 {
+		return 0, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
+	}
+	details, err := s.repo.GetGame(gameID)
+	if err != nil {
+		return 0, err
+	}
+	analysis, err := BuildGameAnalysis(details, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return 0, err
+	}
+	if err := s.repo.ReplaceGameAnalysis(analysis); err != nil {
+		return 0, err
+	}
+	return gameID, nil
+}
+
+func (s *Service) ReadGameAnalysis(gameID int64, player string) (GameAnalysisResult, error) {
+	if gameID <= 0 {
+		return GameAnalysisResult{}, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
+	}
+	return s.repo.GetGameAnalysis(gameID, strings.TrimSpace(player))
+}
+
+func (s *Service) ListGameAnalyses() ([]GameAnalysisListItem, error) {
+	return s.repo.ListGameAnalyses()
 }
 
 func prepareGame(dateRaw string, startTime string, opponent string, battingSide BattingSide, ownScore int, opponentScore int, isFinal bool, raw string) (Game, error) {
@@ -179,7 +204,7 @@ func prepareLineup(lineup *GameLineup, gameID int64) error {
 	return nil
 }
 
-func preparePlateAppearance(event *PlateAppearance, gameID int64) error {
+func prepareGameEvent(event *GameEvent, gameID int64) error {
 	if gameID > 0 {
 		event.GameID = gameID
 	}
@@ -192,27 +217,69 @@ func preparePlateAppearance(event *PlateAppearance, gameID int64) error {
 	if err := ValidateHalf(event.Half); err != nil {
 		return err
 	}
-	event.Batter = strings.TrimSpace(event.Batter)
-	if event.Batter == "" {
-		return errors.New("--batter cannot be empty")
-	}
-	event.Pitcher = strings.TrimSpace(event.Pitcher)
-	if err := ValidateEventType(event.EventType); err != nil {
+	if err := ValidatePlayNo(event.PlayNo); err != nil {
 		return err
 	}
+	if event.Sequence <= 0 {
+		return fmt.Errorf("invalid --sequence %d, expected greater than 0", event.Sequence)
+	}
+	if err := ValidateEventKind(event.EventKind); err != nil {
+		return err
+	}
+	event.Player = strings.TrimSpace(event.Player)
+	if event.Player == "" {
+		return errors.New("--player cannot be empty")
+	}
+	if err := ValidateTeam(event.Team); err != nil {
+		return err
+	}
+	if err := ValidateResult(event.EventKind, event.Result); err != nil {
+		return err
+	}
+	event.RelatedPlayer = strings.TrimSpace(event.RelatedPlayer)
 	event.PitchSequence = strings.TrimSpace(event.PitchSequence)
-	if err := ValidateOuts(event.Outs); err != nil {
-		return err
+	event.RBIPlayer = strings.TrimSpace(event.RBIPlayer)
+	event.Description = strings.TrimSpace(event.Description)
+	if event.Value == 0 {
+		event.Value = 1
 	}
-	if err := ValidateBaseState(event.BaseState); err != nil {
-		return err
+	if event.Value < 0 {
+		return fmt.Errorf("invalid --value %d, expected >= 0", event.Value)
+	}
+	if event.OutsOnPlay < 0 {
+		return fmt.Errorf("invalid --outs-on-play %d, expected >= 0", event.OutsOnPlay)
 	}
 	if event.RunsScored < 0 {
 		return fmt.Errorf("invalid --runs-scored %d, expected >= 0", event.RunsScored)
 	}
-	event.Description = strings.TrimSpace(event.Description)
-	if event.Description == "" {
-		return errors.New("--description cannot be empty")
+	if err := ValidateBaseFrom(event.BaseFrom); err != nil {
+		return err
+	}
+	if err := ValidateBaseTo(event.BaseTo); err != nil {
+		return err
+	}
+	switch event.EventKind {
+	case EventKindPlateResult:
+		if event.RelatedPlayer == "" {
+			return errors.New("--related-player cannot be empty for plate_result")
+		}
+		if event.PitchSequence == "" {
+			return errors.New("--pitch-sequence cannot be empty for plate_result")
+		}
+	case EventKindRunnerMovement:
+		if event.BaseFrom == nil {
+			return errors.New("--base-from cannot be empty for runner_movement")
+		}
+		if RunnerResult(event.Result) != RunnerResultOut && event.BaseTo == nil {
+			return errors.New("--base-to cannot be empty for runner_movement unless result is out")
+		}
+		if event.Reason == nil {
+			other := RunnerReasonOther
+			event.Reason = &other
+		}
+		if err := ValidateRunnerReason(*event.Reason); err != nil {
+			return err
+		}
 	}
 	return nil
 }

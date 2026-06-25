@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestPlayerAddAndRead(t *testing.T) {
@@ -31,13 +32,15 @@ func TestPlayerAddAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("player read failed: %v", err)
 	}
+	assertValidTOML(t, out)
 
 	wantParts := []string{
-		"name: 张三",
-		"number: 18",
-		"bat: right",
-		"throw: right",
-		"positions: pitcher,infield",
+		"[player]",
+		"name = '张三'",
+		"number = 18",
+		"bat = 'right'",
+		"throw = 'right'",
+		"positions = 'pitcher,infield'",
 	}
 	for _, want := range wantParts {
 		if !strings.Contains(out, want) {
@@ -106,12 +109,14 @@ func TestReportWriteReadAndOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("report read failed: %v", err)
 	}
+	assertValidTOML(t, out)
 
 	wantParts := []string{
-		"name: 张三",
-		"date: 2026-06-24",
-		"content: 守备训练",
-		"reflection: 脚步更主动",
+		"[report]",
+		"name = '张三'",
+		"date = '2026-06-24'",
+		"content = '守备训练'",
+		"reflection = '脚步更主动'",
 	}
 	for _, want := range wantParts {
 		if !strings.Contains(out, want) {
@@ -207,9 +212,9 @@ func TestHelpTextDescribesStringChoices(t *testing.T) {
 				"Own batting side: top,bottom.",
 				"JSON array of lineup records.",
 				"team: own,opponent.",
-				"JSON array of plate appearance records.",
-				"event_type:",
-				"other,single,double,triple,homerun,walk,strikeout,groundout,flyout,error,steal.",
+				"JSON array of game fact events.",
+				"event_kind:",
+				"plate_result,runner_movement,fielding_credit.",
 			},
 		},
 		{
@@ -222,16 +227,13 @@ func TestHelpTextDescribesStringChoices(t *testing.T) {
 			},
 		},
 		{
-			name: "game event add",
-			args: []string{"game", "event", "add", "-h"},
+			name: "game event write",
+			args: []string{"game", "event", "write", "-h"},
 			wantParts: []string{
-				"Half inning: top,bottom.",
-				"Event type:",
-				"other,single,double,triple,homerun,walk,strikeout,groundout,flyout,error,steal.",
-				"Outs after the event: 0, 1, or 2.",
-				"Base state before the event: 0-7.",
-				"0 empty, 1",
-				"first, 2 second, 4 third; combine by addition.",
+				"Game id to append events to; must exist.",
+				"JSON array of game fact events;",
+				"supports plate_result, runner_movement, and",
+				"fielding_credit.",
 			},
 		},
 		{
@@ -289,7 +291,7 @@ func TestGameWriteReadAndList(t *testing.T) {
 		"--opponent-score", "3",
 		"--raw", "6月24日对海港队，先攻，5:3获胜",
 		"--lineup-json", `[{"team":"own","player":"张三","batting_order":1,"starting_position":"P"}]`,
-		"--events-json", `[{"inning":1,"half":"top","batter":"张三","pitcher":"李四","event_type":"single","pitch_sequence":"B,S,X","outs":0,"base_state":0,"runs_scored":0,"description":"张三中前安打"}]`,
+		"--events-json", `[{"inning":1,"half":"top","play_no":1,"sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"single","related_player":"李四","pitch_sequence":"B,S,X","description":"张三中前安打"}]`,
 	)
 	if err != nil {
 		t.Fatalf("game write failed: %v", err)
@@ -302,31 +304,41 @@ func TestGameWriteReadAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("game read failed: %v", err)
 	}
+	assertValidTOML(t, out)
 	wantParts := []string{
-		"date: 2026-06-24",
-		"opponent: 海港队",
-		"own_score: 5",
-		"opponent_score: 3",
-		"is_final: true",
-		"batting_side: top",
-		"team: own",
-		"starting_position: P",
-		"half: top",
-		"event_type: single",
-		"player: 张三",
-		"description: 张三中前安打",
+		"[game]",
+		"date = '2026-06-24'",
+		"opponent = '海港队'",
+		"own_score = 5",
+		"opponent_score = 3",
+		"score = '5-3'",
+		"is_final = true",
+		"batting_side = 'top'",
+		"[[lineups]]",
+		"team = 'own'",
+		"starting_position = 'P'",
+		"[[events]]",
+		"half = 'top'",
+		"event_kind = 'plate_result'",
+		"result = 'single'",
+		"player = '张三'",
+		"description = '张三中前安打'",
 	}
 	for _, want := range wantParts {
 		if !strings.Contains(out, want) {
 			t.Fatalf("read output missing %q: %q", want, out)
 		}
 	}
+	if strings.Contains(out, "base_from =") || strings.Contains(out, "earned =") {
+		t.Fatalf("nil optional event values should be omitted: %q", out)
+	}
 
 	out, err = runCommand(dbPath, "game", "list", "--date", "2026-06-24")
 	if err != nil {
 		t.Fatalf("game list failed: %v", err)
 	}
-	if !strings.Contains(out, "id: 1 date: 2026-06-24") || !strings.Contains(out, "batting_side: top") || !strings.Contains(out, "score: 5-3") {
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "[[games]]") || !strings.Contains(out, "id = 1") || !strings.Contains(out, "date = '2026-06-24'") || !strings.Contains(out, "batting_side = 'top'") || !strings.Contains(out, "score = '5-3'") {
 		t.Fatalf("unexpected list output: %q", out)
 	}
 }
@@ -362,23 +374,14 @@ func TestGameCreateAppendAndSetScore(t *testing.T) {
 		t.Fatalf("unexpected lineup output: %q", out)
 	}
 
-	out, err = runCommand(dbPath, "game", "event", "add",
+	out, err = runCommand(dbPath, "game", "event", "write",
 		"--game-id", "1",
-		"--inning", "1",
-		"--half", "TOP",
-		"--batter", "张三",
-		"--pitcher", "李四",
-		"--event-type", "SINGLE",
-		"--pitch-sequence", "B,S,X",
-		"--outs", "0",
-		"--base-state", "0",
-		"--runs-scored", "0",
-		"--description", "张三中前安打",
+		"--events-json", `[{"inning":1,"half":"TOP","play_no":1,"sequence":1,"event_kind":"PLATE_RESULT","player":"张三","team":"OWN","result":"SINGLE","related_player":"李四","pitch_sequence":"B,S,X","description":"张三中前安打"}]`,
 	)
 	if err != nil {
-		t.Fatalf("event add failed: %v", err)
+		t.Fatalf("event write failed: %v", err)
 	}
-	if !strings.Contains(out, "event added: 1") {
+	if !strings.Contains(out, "game events saved: 1") {
 		t.Fatalf("unexpected event output: %q", out)
 	}
 
@@ -398,21 +401,154 @@ func TestGameCreateAppendAndSetScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("game read failed: %v", err)
 	}
+	assertValidTOML(t, out)
 	wantParts := []string{
-		"is_final: true",
-		"own_score: 5",
-		"opponent_score: 3",
-		"team: own",
-		"starting_position: P",
-		"half: top",
-		"event_type: single",
-		"player: 张三",
-		"description: 张三中前安打",
+		"[game]",
+		"is_final = true",
+		"own_score = 5",
+		"opponent_score = 3",
+		"[[lineups]]",
+		"team = 'own'",
+		"starting_position = 'P'",
+		"[[events]]",
+		"half = 'top'",
+		"event_kind = 'plate_result'",
+		"result = 'single'",
+		"player = '张三'",
+		"description = '张三中前安打'",
 	}
 	for _, want := range wantParts {
 		if !strings.Contains(out, want) {
 			t.Fatalf("read output missing %q: %q", want, out)
 		}
+	}
+}
+
+func TestGameAnalysisGenerateReadAndList(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+
+	events := `[
+		{"inning":1,"half":"top","play_no":1,"sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"double","related_player":"对方投手","pitch_sequence":"B,X","description":"张三二垒安打"},
+		{"inning":1,"half":"top","play_no":1,"sequence":2,"event_kind":"runner_movement","player":"李四","team":"own","result":"run_scored","base_from":2,"base_to":4,"reason":"batted_ball","runs_scored":1,"rbi_player":"张三","description":"李四得分"},
+		{"inning":1,"half":"top","play_no":2,"sequence":1,"event_kind":"runner_movement","player":"张三","team":"own","result":"advance","base_from":1,"base_to":2,"reason":"stolen_base","description":"张三盗上二垒"},
+		{"inning":1,"half":"bottom","play_no":3,"sequence":1,"event_kind":"plate_result","player":"对手甲","team":"opponent","result":"strikeout","related_player":"张三","pitch_sequence":"S,S,S","outs_on_play":1,"description":"张三三振对手"},
+		{"inning":1,"half":"bottom","play_no":4,"sequence":1,"event_kind":"runner_movement","player":"对手乙","team":"opponent","result":"run_scored","base_from":3,"base_to":4,"reason":"batted_ball","related_player":"张三","runs_scored":1,"earned":true,"description":"对手得分"},
+		{"inning":1,"half":"bottom","play_no":5,"sequence":1,"event_kind":"fielding_credit","player":"李四","team":"own","result":"putout","description":"李四接杀"}
+	]`
+
+	_, err := runCommand(dbPath, "game", "write",
+		"--date", "2026-06-24",
+		"--opponent", "海港队",
+		"--batting-side", "top",
+		"--own-score", "2",
+		"--opponent-score", "1",
+		"--raw", "结构化比赛",
+		"--lineup-json", `[{"team":"own","player":"张三","batting_order":1,"starting_position":"P"},{"team":"own","player":"李四","batting_order":2,"starting_position":"CF"}]`,
+		"--events-json", events,
+	)
+	if err != nil {
+		t.Fatalf("game write failed: %v", err)
+	}
+
+	out, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1")
+	if err != nil {
+		t.Fatalf("analysis generate failed: %v", err)
+	}
+	if !strings.Contains(out, "game analysis generated: 1") {
+		t.Fatalf("unexpected generate output: %q", out)
+	}
+
+	out, err = runCommand(dbPath, "game", "analysis", "read", "--game-id", "1")
+	if err != nil {
+		t.Fatalf("analysis read failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	wantParts := []string{
+		"data_gaps = []",
+		"[analysis]",
+		"result = 'win'",
+		"score = '2-1'",
+		"[[player_summaries]]",
+		"player = '张三'",
+		"highlight = 'extra_base_hit,stole_base'",
+		"[[batting]]",
+		"pa = 1",
+		"at_bats = 1",
+		"hits = 1",
+		"simplified_on_base_percentage = 1.0",
+		"[[baserunning]]",
+		"stolen_bases = 1",
+		"[[pitching]]",
+		"strikeouts = 1",
+		"era = 27.0",
+		"[[fielding]]",
+		"player = '李四'",
+		"fielding_percentage = 1.0",
+	}
+	for _, want := range wantParts {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis output missing %q: %q", want, out)
+		}
+	}
+
+	out, err = runCommand(dbPath, "game", "analysis", "read", "--game-id", "1", "--player", "张三")
+	if err != nil {
+		t.Fatalf("analysis read player failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "player = '张三'") || strings.Contains(out, "player = '李四'") {
+		t.Fatalf("unexpected player analysis output: %q", out)
+	}
+
+	_, err = runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1")
+	if err != nil {
+		t.Fatalf("analysis regenerate failed: %v", err)
+	}
+	out, err = runCommand(dbPath, "game", "analysis", "list")
+	if err != nil {
+		t.Fatalf("analysis list failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "[[analyses]]") || !strings.Contains(out, "game_id = 1") || !strings.Contains(out, "date = '2026-06-24'") || !strings.Contains(out, "opponent = '海港队'") || !strings.Contains(out, "score = '2-1'") || !strings.Contains(out, "result = 'win'") {
+		t.Fatalf("unexpected analysis list output: %q", out)
+	}
+}
+
+func TestGameAnalysisErrors(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+
+	_, err := runCommand(dbPath, "game", "create",
+		"--date", "2026-06-24",
+		"--opponent", "海港队",
+		"--batting-side", "top",
+		"--raw", "只有比赛信息",
+	)
+	if err != nil {
+		t.Fatalf("game create failed: %v", err)
+	}
+
+	_, err = runCommand(dbPath, "game", "analysis", "read", "--game-id", "1")
+	if err == nil {
+		t.Fatal("expected analysis read before generate to fail")
+	}
+	if !strings.Contains(err.Error(), "game analysis not found: 1") {
+		t.Fatalf("unexpected analysis not found error: %v", err)
+	}
+
+	_, err = runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1")
+	if err == nil {
+		t.Fatal("expected empty game analysis generation to fail")
+	}
+	if !strings.Contains(err.Error(), "game has no analyzable events") {
+		t.Fatalf("unexpected empty analysis error: %v", err)
+	}
+
+	_, err = runCommand(dbPath, "game", "analysis", "generate", "--game-id", "999")
+	if err == nil {
+		t.Fatal("expected missing game analysis generation to fail")
+	}
+	if !strings.Contains(err.Error(), "game not found: 999") {
+		t.Fatalf("unexpected missing game error: %v", err)
 	}
 }
 
@@ -489,7 +625,7 @@ func TestGameCommandsRejectInvalidInput(t *testing.T) {
 		"--own-score", "0",
 		"--opponent-score", "0",
 		"--raw", "raw",
-		"--events-json", `[{"inning":1,"half":"middle","batter":"张三","event_type":"single","outs":0,"base_state":0,"runs_scored":0,"description":"bad"}]`,
+		"--events-json", `[{"inning":1,"half":"middle","sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"single","related_player":"李四","pitch_sequence":"X"}]`,
 	)
 	if err == nil {
 		t.Fatal("expected invalid half to fail")
@@ -514,38 +650,26 @@ func TestGameCommandsRejectInvalidInput(t *testing.T) {
 		t.Fatalf("unexpected invalid JSON enum error: %v", err)
 	}
 
-	_, err = runCommand(dbPath, "game", "event", "add",
+	_, err = runCommand(dbPath, "game", "event", "write",
 		"--game-id", "1",
-		"--inning", "1",
-		"--half", "top",
-		"--batter", "张三",
-		"--event-type", "hit",
-		"--outs", "0",
-		"--base-state", "0",
-		"--description", "bad",
+		"--events-json", `[{"inning":1,"half":"top","sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"hit","related_player":"李四","pitch_sequence":"X"}]`,
 	)
 	if err == nil {
-		t.Fatal("expected invalid event type to fail")
+		t.Fatal("expected invalid result to fail")
 	}
-	if !strings.Contains(err.Error(), `invalid --event-type "hit"`) {
-		t.Fatalf("unexpected invalid event type error: %v", err)
+	if !strings.Contains(err.Error(), `invalid --result "hit"`) {
+		t.Fatalf("unexpected invalid result error: %v", err)
 	}
 
-	_, err = runCommand(dbPath, "game", "event", "add",
+	_, err = runCommand(dbPath, "game", "event", "write",
 		"--game-id", "1",
-		"--inning", "1",
-		"--half", "top",
-		"--batter", "张三",
-		"--event-type", "single",
-		"--outs", "3",
-		"--base-state", "0",
-		"--description", "bad",
+		"--events-json", `[{"inning":1,"half":"top","play_no":0,"sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"single","related_player":"李四","pitch_sequence":"X"}]`,
 	)
 	if err == nil {
-		t.Fatal("expected invalid outs to fail")
+		t.Fatal("expected invalid play_no to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid --outs") {
-		t.Fatalf("unexpected invalid outs error: %v", err)
+	if !strings.Contains(err.Error(), "invalid --play-no") {
+		t.Fatalf("unexpected invalid play_no error: %v", err)
 	}
 }
 
@@ -582,7 +706,8 @@ func TestDrillRecommendWriteAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drill recommend list failed: %v", err)
 	}
-	if !strings.Contains(out, "id: 2 name: 张三 type: pitching") || !strings.Contains(out, "id: 1 name: 张三 type: infield") {
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "[[drills]]") || !strings.Contains(out, "id = 2") || !strings.Contains(out, "type = 'pitching'") || !strings.Contains(out, "id = 1") || !strings.Contains(out, "type = 'infield'") {
 		t.Fatalf("list output missing rows: %q", out)
 	}
 
@@ -590,7 +715,8 @@ func TestDrillRecommendWriteAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drill recommend list by type failed: %v", err)
 	}
-	if !strings.Contains(out, "type: infield") || strings.Contains(out, "type: pitching") {
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "type = 'infield'") || strings.Contains(out, "type = 'pitching'") {
 		t.Fatalf("list by type output wrong: %q", out)
 	}
 
@@ -598,7 +724,8 @@ func TestDrillRecommendWriteAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("drill recommend list combined failed: %v", err)
 	}
-	if !strings.Contains(out, "type: pitching") || strings.Contains(out, "type: infield") {
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "type = 'pitching'") || strings.Contains(out, "type = 'infield'") {
 		t.Fatalf("list combined output wrong: %q", out)
 	}
 
@@ -696,6 +823,17 @@ func runCommand(dbPath string, args ...string) (string, error) {
 		return stdout.String() + stderr.String(), err
 	}
 	return stdout.String() + stderr.String(), nil
+}
+
+func assertValidTOML(t *testing.T, output string) {
+	t.Helper()
+	if strings.TrimSpace(output) == "" {
+		t.Fatal("expected TOML output, got empty output")
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("output is not valid TOML: %v\n%s", err, output)
+	}
 }
 
 type helpExit struct {

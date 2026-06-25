@@ -3,6 +3,8 @@ package sqlite
 import (
 	"database/sql"
 
+	"bastion/internal/domain/game"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -58,4 +60,49 @@ func nullIntPointer(value sql.NullInt64) *int {
 	}
 	intValue := int(value.Int64)
 	return &intValue
+}
+
+func nullBool(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullBoolPointer(value sql.NullBool) *bool {
+	if !value.Valid {
+		return nil
+	}
+	boolValue := value.Bool
+	return &boolValue
+}
+
+func nullFloat(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullFloatPointer(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	floatValue := value.Float64
+	return &floatValue
+}
+
+func nullRunnerReason(value *game.RunnerReason) any {
+	if value == nil {
+		return nil
+	}
+	return int(*value)
+}
+
+func nullRunnerReasonPointer(value sql.NullInt64) *game.RunnerReason {
+	if !value.Valid {
+		return nil
+	}
+	reason := game.RunnerReason(value.Int64)
+	return &reason
 }

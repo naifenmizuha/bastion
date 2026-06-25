@@ -138,16 +138,17 @@ func TestStoreGameLifecycle(t *testing.T) {
 			BattingOrder:     &order,
 			StartingPosition: &position,
 		}},
-		[]game.PlateAppearance{{
+		[]game.GameEvent{{
 			Inning:        1,
 			Half:          game.HalfTop,
-			Batter:        "张三",
-			Pitcher:       "李四",
-			EventType:     game.EventTypeSingle,
+			Sequence:      1,
+			EventKind:     game.EventKindPlateResult,
+			Player:        "张三",
+			Team:          game.TeamOwn,
+			Result:        int(game.PlateResultSingle),
+			RelatedPlayer: "李四",
 			PitchSequence: "B,S,X",
-			Outs:          0,
-			BaseState:     0,
-			RunsScored:    0,
+			Value:         1,
 			Description:   "张三中前安打",
 		}},
 	)
@@ -182,21 +183,25 @@ func TestStoreGameLifecycle(t *testing.T) {
 	if lineupID != 2 {
 		t.Fatalf("unexpected lineup id: %d", lineupID)
 	}
-	eventID, err := store.AddPlateAppearance(game.PlateAppearance{
-		GameID:      unfinalID,
-		Inning:      1,
-		Half:        game.HalfTop,
-		Batter:      "王五",
-		EventType:   game.EventTypeWalk,
-		Outs:        0,
-		BaseState:   0,
-		Description: "王五保送",
-	})
+	eventCount, err := store.AddGameEvents(unfinalID, []game.GameEvent{{
+		GameID:        unfinalID,
+		Inning:        1,
+		Half:          game.HalfTop,
+		Sequence:      1,
+		EventKind:     game.EventKindPlateResult,
+		Player:        "王五",
+		Team:          game.TeamOwn,
+		Result:        int(game.PlateResultWalk),
+		RelatedPlayer: "对方投手",
+		PitchSequence: "B,B,B,B",
+		Value:         1,
+		Description:   "王五保送",
+	}})
 	if err != nil {
-		t.Fatalf("AddPlateAppearance failed: %v", err)
+		t.Fatalf("AddGameEvents failed: %v", err)
 	}
-	if eventID != 2 {
-		t.Fatalf("unexpected event id: %d", eventID)
+	if eventCount != 1 {
+		t.Fatalf("unexpected event count: %d", eventCount)
 	}
 	if err := store.SetGameScore(unfinalID, 7, 6); err != nil {
 		t.Fatalf("SetGameScore failed: %v", err)
@@ -221,14 +226,15 @@ func TestStoreCreateGameRollsBackWhenChildInsertFails(t *testing.T) {
 			Raw:         "raw",
 		},
 		nil,
-		[]game.PlateAppearance{{
-			Inning:      1,
-			Half:        game.HalfTop,
-			Batter:      "张三",
-			EventType:   game.EventTypeSingle,
-			Outs:        3,
-			BaseState:   0,
-			Description: "invalid outs",
+		[]game.GameEvent{{
+			Inning:    0,
+			Half:      game.HalfTop,
+			Sequence:  1,
+			EventKind: game.EventKindPlateResult,
+			Player:    "张三",
+			Team:      game.TeamOwn,
+			Result:    int(game.PlateResultSingle),
+			Value:     1,
 		}},
 	)
 	if err == nil {
@@ -261,6 +267,14 @@ func TestStoreGameNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "game not found: 999") {
 		t.Fatalf("unexpected lineup error: %v", err)
+	}
+
+	_, err = store.AddGameEvents(999, []game.GameEvent{{Inning: 1, Half: game.HalfTop, Sequence: 1, EventKind: game.EventKindPlateResult, Player: "张三", Team: game.TeamOwn, Result: int(game.PlateResultSingle), RelatedPlayer: "李四", PitchSequence: "X", Value: 1}})
+	if err == nil {
+		t.Fatal("expected missing game event write to fail")
+	}
+	if !strings.Contains(err.Error(), "game not found: 999") {
+		t.Fatalf("unexpected event error: %v", err)
 	}
 }
 

@@ -11,6 +11,7 @@ func TestServiceWriteGameNormalizesFields(t *testing.T) {
 
 	lineupOrder := 1
 	position := 1
+	playNo := 1
 	_, err := service.WriteGame(
 		" 2026-06-24 ",
 		" 19:30 ",
@@ -25,16 +26,17 @@ func TestServiceWriteGameNormalizesFields(t *testing.T) {
 			BattingOrder:     &lineupOrder,
 			StartingPosition: &position,
 		}},
-		[]PlateAppearance{{
+		[]GameEvent{{
 			Inning:        1,
 			Half:          HalfTop,
-			Batter:        " 张三 ",
-			Pitcher:       " 李四 ",
-			EventType:     EventTypeSingle,
+			PlayNo:        &playNo,
+			Sequence:      1,
+			EventKind:     EventKindPlateResult,
+			Player:        " 张三 ",
+			Team:          TeamOwn,
+			Result:        int(PlateResultSingle),
+			RelatedPlayer: " 李四 ",
 			PitchSequence: " B,S,X ",
-			Outs:          0,
-			BaseState:     0,
-			RunsScored:    0,
 			Description:   " 张三中前安打 ",
 		}},
 	)
@@ -48,7 +50,7 @@ func TestServiceWriteGameNormalizesFields(t *testing.T) {
 	if repo.createdLineups[0].Player != "张三" {
 		t.Fatalf("unexpected lineup: %+v", repo.createdLineups[0])
 	}
-	if repo.createdEvents[0].Batter != "张三" || repo.createdEvents[0].Pitcher != "李四" || repo.createdEvents[0].Description != "张三中前安打" {
+	if repo.createdEvents[0].Player != "张三" || repo.createdEvents[0].RelatedPlayer != "李四" || repo.createdEvents[0].Value != 1 || repo.createdEvents[0].Description != "张三中前安打" {
 		t.Fatalf("unexpected event: %+v", repo.createdEvents[0])
 	}
 }
@@ -66,31 +68,93 @@ func TestServiceWriteGameRejectsMissingRequiredFields(t *testing.T) {
 	}
 }
 
-func TestServiceAddPlateAppearanceRejectsInvalidOuts(t *testing.T) {
+func TestServiceWriteGameEventsRejectsInvalidRunnerMovement(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
-	_, err := service.AddPlateAppearance(1, 1, HalfTop, "张三", "李四", EventTypeSingle, "B,S,X", 3, 0, 0, "安打")
+	_, err := service.WriteGameEvents(1, []GameEvent{{
+		Inning:    1,
+		Half:      HalfTop,
+		Sequence:  1,
+		EventKind: EventKindRunnerMovement,
+		Player:    "张三",
+		Team:      TeamOwn,
+		Result:    int(RunnerResultAdvance),
+		BaseTo:    intPtr(2),
+	}})
 	if err == nil {
-		t.Fatal("expected invalid outs to fail")
+		t.Fatal("expected missing base_from to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid --outs") {
+	if !strings.Contains(err.Error(), "--base-from cannot be empty") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestBuildGameAnalysisComputesPlayerStats(t *testing.T) {
+	playNo := 1
+	earned := true
+	details := GameDetails{
+		Game: Game{ID: 1, Date: "2026-06-24", Opponent: "海港队", BattingSide: BattingSideTop, OwnScore: 2, OpponentScore: 1, IsFinal: true},
+		Lineups: []GameLineup{
+			{GameID: 1, Team: TeamOwn, Player: "张三", BattingOrder: intPtr(1), StartingPosition: intPtr(1)},
+			{GameID: 1, Team: TeamOwn, Player: "李四", BattingOrder: intPtr(2), StartingPosition: intPtr(8)},
+		},
+		Events: []GameEvent{
+			{GameID: 1, Inning: 1, Half: HalfTop, PlayNo: &playNo, Sequence: 1, EventKind: EventKindPlateResult, Player: "张三", Team: TeamOwn, Result: int(PlateResultDouble), RelatedPlayer: "对方投手", PitchSequence: "B,X", Value: 1},
+			{GameID: 1, Inning: 1, Half: HalfTop, PlayNo: &playNo, Sequence: 2, EventKind: EventKindRunnerMovement, Player: "李四", Team: TeamOwn, Result: int(RunnerResultRunScored), BaseFrom: intPtr(2), BaseTo: intPtr(4), Reason: runnerReasonPtr(RunnerReasonBattedBall), RunsScored: 1, RBIPlayer: "张三", Value: 1},
+			{GameID: 1, Inning: 1, Half: HalfTop, PlayNo: intPtr(2), Sequence: 1, EventKind: EventKindRunnerMovement, Player: "张三", Team: TeamOwn, Result: int(RunnerResultAdvance), BaseFrom: intPtr(1), BaseTo: intPtr(2), Reason: runnerReasonPtr(RunnerReasonStolenBase), Value: 1},
+			{GameID: 1, Inning: 1, Half: HalfBottom, PlayNo: intPtr(3), Sequence: 1, EventKind: EventKindPlateResult, Player: "对手甲", Team: TeamOpponent, Result: int(PlateResultStrikeout), RelatedPlayer: "张三", PitchSequence: "S,S,S", OutsOnPlay: 1, Value: 1},
+			{GameID: 1, Inning: 1, Half: HalfBottom, PlayNo: intPtr(4), Sequence: 1, EventKind: EventKindRunnerMovement, Player: "对手乙", Team: TeamOpponent, Result: int(RunnerResultRunScored), BaseFrom: intPtr(3), BaseTo: intPtr(4), Reason: runnerReasonPtr(RunnerReasonBattedBall), RelatedPlayer: "张三", RunsScored: 1, Earned: &earned, Value: 1},
+			{GameID: 1, Inning: 1, Half: HalfBottom, PlayNo: intPtr(5), Sequence: 1, EventKind: EventKindFieldingCredit, Player: "李四", Team: TeamOwn, Result: int(FieldingResultPutout), Value: 1},
+		},
+	}
+
+	got, err := BuildGameAnalysis(details, "2026-06-25T00:00:00Z")
+	if err != nil {
+		t.Fatalf("BuildGameAnalysis failed: %v", err)
+	}
+	if got.Analysis.Result != GameResultWin || got.Analysis.PlayersAnalyzed != 2 {
+		t.Fatalf("unexpected analysis header: %+v", got.Analysis)
+	}
+	if len(got.Batting) != 1 || got.Batting[0].Player != "张三" || got.Batting[0].Doubles != 1 || got.Batting[0].RunsBattedIn != 1 || got.Batting[0].OPS != 3 {
+		t.Fatalf("unexpected batting stats: %+v", got.Batting)
+	}
+	if len(got.Baserunning) != 2 || got.Baserunning[0].Player != "张三" || got.Baserunning[0].StolenBases != 1 {
+		t.Fatalf("unexpected baserunning stats: %+v", got.Baserunning)
+	}
+	if len(got.Pitching) != 1 || got.Pitching[0].Player != "张三" || got.Pitching[0].Strikeouts != 1 || got.Pitching[0].EarnedRuns != 1 || got.Pitching[0].ERA == nil {
+		t.Fatalf("unexpected pitching stats: %+v", got.Pitching)
+	}
+	if len(got.Fielding) != 1 || got.Fielding[0].Player != "李四" || got.Fielding[0].FieldingPercentage != 1 {
+		t.Fatalf("unexpected fielding stats: %+v", got.Fielding)
+	}
+	if !strings.Contains(got.Summaries[0].Highlight+got.Summaries[1].Highlight, "extra_base_hit") || !strings.Contains(got.Summaries[0].Highlight+got.Summaries[1].Highlight, "stole_base") {
+		t.Fatalf("expected highlight tags: %+v", got.Summaries)
+	}
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func runnerReasonPtr(value RunnerReason) *RunnerReason {
+	return &value
 }
 
 type fakeRepo struct {
 	createdGame      Game
 	createdLineups   []GameLineup
-	createdEvents    []PlateAppearance
+	createdEvents    []GameEvent
 	addedLineup      GameLineup
-	addedEvent       PlateAppearance
+	addedEvents      []GameEvent
 	setScoreGameID   int64
 	setOwnScore      int
 	setOpponentScore int
+	details          GameDetails
+	analysis         GameAnalysisResult
 }
 
-func (r *fakeRepo) CreateGame(game Game, lineups []GameLineup, events []PlateAppearance) (int64, error) {
+func (r *fakeRepo) CreateGame(game Game, lineups []GameLineup, events []GameEvent) (int64, error) {
 	r.createdGame = game
 	r.createdLineups = lineups
 	r.createdEvents = events
@@ -102,9 +166,9 @@ func (r *fakeRepo) AddGameLineup(lineup GameLineup) (int64, error) {
 	return 1, nil
 }
 
-func (r *fakeRepo) AddPlateAppearance(event PlateAppearance) (int64, error) {
-	r.addedEvent = event
-	return 1, nil
+func (r *fakeRepo) AddGameEvents(gameID int64, events []GameEvent) (int, error) {
+	r.addedEvents = events
+	return len(events), nil
 }
 
 func (r *fakeRepo) SetGameScore(gameID int64, ownScore int, opponentScore int) error {
@@ -115,9 +179,25 @@ func (r *fakeRepo) SetGameScore(gameID int64, ownScore int, opponentScore int) e
 }
 
 func (r *fakeRepo) GetGame(id int64) (GameDetails, error) {
+	if len(r.details.Events) > 0 {
+		return r.details, nil
+	}
 	return GameDetails{Game: Game{ID: id}}, nil
 }
 
 func (r *fakeRepo) ListGames(filter GameListFilter) ([]Game, error) {
 	return []Game{{Date: filter.Date}}, nil
+}
+
+func (r *fakeRepo) ReplaceGameAnalysis(result GameAnalysisResult) error {
+	r.analysis = result
+	return nil
+}
+
+func (r *fakeRepo) GetGameAnalysis(gameID int64, player string) (GameAnalysisResult, error) {
+	return r.analysis, nil
+}
+
+func (r *fakeRepo) ListGameAnalyses() ([]GameAnalysisListItem, error) {
+	return []GameAnalysisListItem{{GameID: 1}}, nil
 }
