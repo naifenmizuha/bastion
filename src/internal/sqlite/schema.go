@@ -191,8 +191,66 @@ CREATE TABLE IF NOT EXISTS drill_recommendations (
 	reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
 	type INTEGER NOT NULL CHECK(type BETWEEN 0 AND 6),
 	summary TEXT NOT NULL CHECK(length(trim(summary)) > 0),
+	is_approved BOOLEAN NOT NULL DEFAULT 0,
+	reviewed_by TEXT,
+	review_summary TEXT,
+	review_note TEXT,
+	reviewed_at TEXT,
 	created_at TEXT NOT NULL CHECK(length(trim(created_at)) > 0)
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.ensureDrillRecommendationReviewColumns()
+}
+
+func (s *Store) ensureDrillRecommendationReviewColumns() error {
+	columns := map[string]string{
+		"is_approved":    "ALTER TABLE drill_recommendations ADD COLUMN is_approved BOOLEAN NOT NULL DEFAULT 0",
+		"reviewed_by":    "ALTER TABLE drill_recommendations ADD COLUMN reviewed_by TEXT",
+		"review_summary": "ALTER TABLE drill_recommendations ADD COLUMN review_summary TEXT",
+		"review_note":    "ALTER TABLE drill_recommendations ADD COLUMN review_note TEXT",
+		"reviewed_at":    "ALTER TABLE drill_recommendations ADD COLUMN reviewed_at TEXT",
+	}
+	for column, statement := range columns {
+		exists, err := s.columnExists("drill_recommendations", column)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := s.db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) columnExists(table string, column string) (bool, error) {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }

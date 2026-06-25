@@ -13,16 +13,41 @@ const (
 )
 
 type Recommendation struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	URL       string    `json:"url"`
-	Reason    string    `json:"reason"`
-	Type      DrillType `json:"type"`
-	Summary   string    `json:"summary"`
-	CreatedAt string    `json:"created_at"`
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url"`
+	Reason        string    `json:"reason"`
+	Type          DrillType `json:"type"`
+	Summary       string    `json:"summary"`
+	IsApproved    bool      `json:"is_approved"`
+	ReviewedBy    string    `json:"reviewed_by"`
+	ReviewSummary string    `json:"review_summary"`
+	ReviewNote    string    `json:"review_note"`
+	ReviewedAt    string    `json:"reviewed_at"`
+	CreatedAt     string    `json:"created_at"`
 }
 
 type ListFilter struct {
-	Name string
-	Type *DrillType
+	Name   string
+	Type   *DrillType
+	Status *ReviewStatus
+	ID     *int64
+}
+
+type ReviewStatus int
+
+const (
+	ReviewStatusPending ReviewStatus = iota
+	ReviewStatusApproved
+	ReviewStatusRejected
+)
+
+func (r Recommendation) ReviewStatus() ReviewStatus {
+	if r.ReviewedAt == "" {
+		return ReviewStatusPending
+	}
+	if r.IsApproved {
+		return ReviewStatusApproved
+	}
+	return ReviewStatusRejected
 }

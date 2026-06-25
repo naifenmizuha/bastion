@@ -288,6 +288,10 @@ func TestDrillRecommendWriteAndList(t *testing.T) {
 	if !ok || len(drills) != 1 {
 		t.Fatalf("unexpected drill list: %s", out)
 	}
+	firstDrill, ok := drills[0].(map[string]any)
+	if !ok || firstDrill["review_status"] != "pending" {
+		t.Fatalf("expected pending drill, got %s", out)
+	}
 
 	out, err = runCommand(dbPath, "drill", "recommend", "list", "--name", "不存在")
 	if err != nil {
@@ -296,6 +300,60 @@ func TestDrillRecommendWriteAndList(t *testing.T) {
 	drills, ok = assertJSONOK(t, out)["drills"].([]any)
 	if !ok || len(drills) != 0 {
 		t.Fatalf("expected empty drills array, got %s", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "review", "approve", "--recommendation-id", "1", "--coach", "王教练", "--summary", "适合内野基础", "--note", "下周训练使用")
+	if err != nil {
+		t.Fatalf("drill approve failed: %v\n%s", err, out)
+	}
+	approved := assertJSONOK(t, out)
+	if approved["status"] != "approved" {
+		t.Fatalf("expected approved status, got %s", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "training", "list")
+	if err != nil {
+		t.Fatalf("drill training list failed: %v\n%s", err, out)
+	}
+	trainings, ok := assertJSONOK(t, out)["trainings"].([]any)
+	if !ok || len(trainings) != 1 {
+		t.Fatalf("expected one approved training, got %s", out)
+	}
+	training, ok := trainings[0].(map[string]any)
+	if !ok || training["review_status"] != "approved" || training["reviewed_by"] != "王教练" {
+		t.Fatalf("unexpected approved training: %s", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "training", "read", "--recommendation-id", "1")
+	if err != nil {
+		t.Fatalf("drill training read failed: %v\n%s", err, out)
+	}
+	readTraining, ok := assertJSONOK(t, out)["training"].(map[string]any)
+	if !ok || readTraining["review_note"] != "下周训练使用" {
+		t.Fatalf("unexpected training read: %s", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "review", "reject", "--recommendation-id", "1", "--coach", "王教练", "--summary", "不适合当前阶段", "--reason", "暂不采用")
+	if err != nil {
+		t.Fatalf("drill reject failed: %v\n%s", err, out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "training", "list")
+	if err != nil {
+		t.Fatalf("drill training list after reject failed: %v\n%s", err, out)
+	}
+	trainings, ok = assertJSONOK(t, out)["trainings"].([]any)
+	if !ok || len(trainings) != 0 {
+		t.Fatalf("expected no approved trainings after reject, got %s", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--status", "rejected")
+	if err != nil {
+		t.Fatalf("drill rejected list failed: %v\n%s", err, out)
+	}
+	drills, ok = assertJSONOK(t, out)["drills"].([]any)
+	if !ok || len(drills) != 1 {
+		t.Fatalf("expected one rejected drill, got %s", out)
 	}
 }
 

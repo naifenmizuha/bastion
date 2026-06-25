@@ -8,3 +8,10 @@ func ValidateDrillType(value DrillType) error {
 	}
 	return nil
 }
+
+func ValidateReviewStatus(value ReviewStatus) error {
+	if value < ReviewStatusPending || value > ReviewStatusRejected {
+		return fmt.Errorf("invalid --status %d, expected 0-2", value)
+	}
+	return nil
+}
