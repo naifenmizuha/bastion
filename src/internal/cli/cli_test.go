@@ -873,3 +873,184 @@ func runHelp(args ...string) (output string, err error) {
 	_, err = parser.Parse(args)
 	return stdout.String() + stderr.String(), err
 }
+
+func seedGameForPersonTest(t *testing.T, dbPath, date, opponent, events string) {
+	t.Helper()
+	_, err := runCommand(dbPath, "game", "write",
+		"--date", date,
+		"--opponent", opponent,
+		"--batting-side", "top",
+		"--own-score", "2",
+		"--opponent-score", "1",
+		"--raw", "结构化比赛",
+		"--lineup-json", `[{"team":"own","player":"张三","batting_order":1,"starting_position":"P"}]`,
+		"--events-json", events,
+	)
+	if err != nil {
+		t.Fatalf("game write failed: %v", err)
+	}
+}
+
+func TestPersonAnalysisRead(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	events := `[
+		{"inning":1,"half":"top","play_no":1,"sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"double","related_player":"对方投手","pitch_sequence":"B,X","description":"张三二垒安打"},
+		{"inning":1,"half":"bottom","play_no":2,"sequence":1,"event_kind":"plate_result","player":"对手甲","team":"opponent","result":"strikeout","related_player":"张三","pitch_sequence":"S,S,S","outs_on_play":1,"description":"张三三振对手"},
+		{"inning":1,"half":"bottom","play_no":3,"sequence":1,"event_kind":"runner_movement","player":"对手乙","team":"opponent","result":"run_scored","base_from":3,"base_to":4,"reason":"batted_ball","related_player":"张三","runs_scored":1,"earned":true,"description":"对手得分"}
+	]`
+	seedGameForPersonTest(t, dbPath, "2026-05-10", "海港队", events)
+	if _, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1"); err != nil {
+		t.Fatalf("analysis generate 1 failed: %v", err)
+	}
+
+	seedGameForPersonTest(t, dbPath, "2026-06-10", "风暴队", events)
+	if _, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "2"); err != nil {
+		t.Fatalf("analysis generate 2 failed: %v", err)
+	}
+
+	seedGameForPersonTest(t, dbPath, "2026-07-10", "夏日队", events)
+	if _, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "3"); err != nil {
+		t.Fatalf("analysis generate 3 failed: %v", err)
+	}
+
+	out, err := runCommand(dbPath, "person", "analysis", "read",
+		"--name", "张三",
+		"--from", "2026-05-01",
+		"--to", "2026-06-30",
+	)
+	if err != nil {
+		t.Fatalf("person analysis read failed: %v", err)
+	}
+	assertValidTOML(t, out)
+
+	wantParts := []string{
+		"[analysis]",
+		"name = '张三'",
+		"span_from = '2026-05-01'",
+		"span_to = '2026-06-30'",
+		"games_in_span = 2",
+		"games_analyzed = 2",
+		"own_wins = 2",
+		"[summary]",
+		"games_batting = 2",
+		"games_pitching = 2",
+		"batting_available = true",
+		"[batting]",
+		"games = 2",
+		"hits = 2",
+		"doubles = 2",
+		"[pitching]",
+		"strikeouts = 2",
+		"earned_runs = 2",
+		"era = 27.0",
+		"data_gaps = []",
+	}
+	for _, want := range wantParts {
+		if !strings.Contains(out, want) {
+			t.Fatalf("person analysis output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPersonAnalysisReadMissingGameAnalysisGap(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	events := `[
+		{"inning":1,"half":"top","play_no":1,"sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"single","related_player":"对方投手","pitch_sequence":"X","description":"安打"}
+	]`
+	seedGameForPersonTest(t, dbPath, "2026-05-10", "海港队", events)
+	if _, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1"); err != nil {
+		t.Fatalf("analysis generate 1 failed: %v", err)
+	}
+
+	seedGameForPersonTest(t, dbPath, "2026-05-20", "风暴队", events)
+	// game 2 not analyzed
+
+	out, err := runCommand(dbPath, "person", "analysis", "read",
+		"--name", "张三",
+		"--from", "2026-05-01",
+		"--to", "2026-05-31",
+	)
+	if err != nil {
+		t.Fatalf("person analysis read failed: %v", err)
+	}
+	assertValidTOML(t, out)
+	if !strings.Contains(out, "scope = 'missing_game_analysis'") {
+		t.Fatalf("expected missing_game_analysis gap in output:\n%s", out)
+	}
+	if !strings.Contains(out, "games_in_span = 2") {
+		t.Fatalf("expected games_in_span = 2:\n%s", out)
+	}
+	if !strings.Contains(out, "games_analyzed = 1") {
+		t.Fatalf("expected games_analyzed = 1:\n%s", out)
+	}
+}
+
+func TestPersonAnalysisReadErrors(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"player not found", []string{"--name", "不存在", "--from", "2026-01-01", "--to", "2026-01-31"}, "player not found"},
+		{"invalid from date", []string{"--name", "张三", "--from", "2026-13-01", "--to", "2026-01-31"}, "invalid --date"},
+		{"from after to", []string{"--name", "张三", "--from", "2026-02-01", "--to", "2026-01-01"}, "is after"},
+		{"no analyzable games", []string{"--name", "张三", "--from", "2026-01-01", "--to", "2026-01-31"}, "no analyzable games in span"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args := append([]string{"person", "analysis", "read"}, c.args...)
+			_, err := runCommand(dbPath, args...)
+			if err == nil {
+				t.Fatalf("expected error containing %q", c.want)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), c.want)
+			}
+		})
+	}
+}
+
+func TestPersonAnalysisReadNoPlayerStats(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	events := `[
+		{"inning":1,"half":"top","play_no":1,"sequence":1,"event_kind":"plate_result","player":"李四","team":"own","result":"single","related_player":"对方投手","pitch_sequence":"X","description":"安打"}
+	]`
+	seedGameForPersonTest(t, dbPath, "2026-05-10", "海港队", events)
+	if _, err := runCommand(dbPath, "game", "analysis", "generate", "--game-id", "1"); err != nil {
+		t.Fatalf("analysis generate failed: %v", err)
+	}
+
+	_, err := runCommand(dbPath, "person", "analysis", "read",
+		"--name", "张三",
+		"--from", "2026-05-01",
+		"--to", "2026-05-31",
+	)
+	if err == nil {
+		t.Fatal("expected no player stats error")
+	}
+	if !strings.Contains(err.Error(), "no player stats in span") {
+		t.Fatalf("err = %q, want substring 'no player stats in span'", err.Error())
+	}
+}
+
+func TestPersonAnalysisReadHelpText(t *testing.T) {
+	out, err := runHelp("person", "analysis", "read", "-h")
+	if err != nil {
+		t.Fatalf("help failed: %v", err)
+	}
+	wantParts := []string{"--name", "--from", "--to", "YYYY-MM-DD"}
+	for _, want := range wantParts {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q:\n%s", want, out)
+		}
+	}
+}

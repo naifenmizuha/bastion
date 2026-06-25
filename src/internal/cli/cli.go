@@ -8,6 +8,7 @@ import (
 
 	"bastion/internal/domain/drill"
 	"bastion/internal/domain/game"
+	"bastion/internal/domain/person"
 	"bastion/internal/domain/player"
 	"bastion/internal/domain/report"
 	"bastion/internal/sqlite"
@@ -22,6 +23,7 @@ type CLI struct {
 	Report ReportCmd `cmd:"" help:"Manage training reports."`
 	Game   GameCmd   `cmd:"" help:"Manage games."`
 	Drill  DrillCmd  `cmd:"" help:"Manage drill recommendations."`
+	Person PersonCmd `cmd:"" help:"Manage person cross-period analysis."`
 }
 
 type PlayerCmd struct {
@@ -167,11 +169,26 @@ type DrillListCmd struct {
 	Type string `help:"Filter by drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
 }
 
+type PersonCmd struct {
+	Analysis PersonAnalysisCmd `cmd:"" help:"Manage person cross-period analysis."`
+}
+
+type PersonAnalysisCmd struct {
+	Read PersonAnalysisReadCmd `cmd:"" help:"Read cross-period player analysis."`
+}
+
+type PersonAnalysisReadCmd struct {
+	Name string `required:"" help:"Player name; must be a registered player."`
+	From string `required:"" help:"Span start date, formatted as YYYY-MM-DD, inclusive."`
+	To   string `required:"" help:"Span end date, formatted as YYYY-MM-DD, inclusive; must be >= --from."`
+}
+
 type Context struct {
 	PlayerService *player.Service
 	ReportService *report.Service
 	GameService   *game.Service
 	DrillService  *drill.Service
+	PersonService *person.Service
 	Out           io.Writer
 }
 
@@ -204,6 +221,7 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 		ReportService: report.NewService(store),
 		GameService:   game.NewService(store),
 		DrillService:  drill.NewService(store),
+		PersonService: person.NewService(store),
 		Out:           stdout,
 	})
 }
@@ -397,6 +415,15 @@ func (cmd *DrillListCmd) Run(ctx *Context) error {
 		return err
 	}
 	printDrillRecommendationList(ctx.Out, recommendations)
+	return nil
+}
+
+func (cmd *PersonAnalysisReadCmd) Run(ctx *Context) error {
+	result, err := ctx.PersonService.ReadPersonAnalysis(cmd.Name, cmd.From, cmd.To)
+	if err != nil {
+		return err
+	}
+	printPersonAnalysis(ctx.Out, result)
 	return nil
 }
 
@@ -649,6 +676,22 @@ func printDrillRecommendationList(out io.Writer, recommendations []drill.Recomme
 	output := drillRecommendationListTOML{Drills: make([]drillRecommendationTOML, 0, len(recommendations))}
 	for _, row := range recommendations {
 		output.Drills = append(output.Drills, drillRecommendationTOMLFrom(row))
+	}
+	writeTOML(out, output)
+}
+
+func printPersonAnalysis(out io.Writer, result person.AnalysisResult) {
+	output := personAnalysisTOML{
+		Analysis:    personAnalysisHeaderTOMLFrom(result.Analysis),
+		Summary:     personSummaryTOMLFrom(result.Summary),
+		Batting:     personBattingTOMLFrom(result.Batting),
+		Baserunning: personBaserunningTOMLFrom(result.Baserunning),
+		Pitching:    personPitchingTOMLFrom(result.Pitching),
+		Fielding:    personFieldingTOMLFrom(result.Fielding),
+		DataGaps:    make([]dataGapTOML, 0, len(result.DataGaps)),
+	}
+	for _, row := range result.DataGaps {
+		output.DataGaps = append(output.DataGaps, dataGapTOML{Scope: row.Scope, Message: row.Message})
 	}
 	writeTOML(out, output)
 }
@@ -972,6 +1015,212 @@ func dataGapTOMLFrom(row game.AnalysisDataGap) dataGapTOML {
 	return dataGapTOML{
 		Scope:   row.Scope,
 		Message: row.Message,
+	}
+}
+
+type personAnalysisTOML struct {
+	Analysis    personAnalysisHeaderTOML `toml:"analysis"`
+	Summary     personSummaryTOML        `toml:"summary"`
+	Batting     personBattingTOML        `toml:"batting"`
+	Baserunning personBaserunningTOML    `toml:"baserunning"`
+	Pitching    personPitchingTOML       `toml:"pitching"`
+	Fielding    personFieldingTOML       `toml:"fielding"`
+	DataGaps    []dataGapTOML            `toml:"data_gaps"`
+}
+
+type personAnalysisHeaderTOML struct {
+	Name          string `toml:"name"`
+	SpanFrom      string `toml:"span_from"`
+	SpanTo        string `toml:"span_to"`
+	GamesInSpan   int    `toml:"games_in_span"`
+	GamesAnalyzed int    `toml:"games_analyzed"`
+	OwnWins       int    `toml:"own_wins"`
+	OwnLosses     int    `toml:"own_losses"`
+	OwnTies       int    `toml:"own_ties"`
+	ComputedAt    string `toml:"computed_at"`
+}
+
+func personAnalysisHeaderTOMLFrom(row person.Analysis) personAnalysisHeaderTOML {
+	return personAnalysisHeaderTOML{
+		Name:          row.Name,
+		SpanFrom:      row.SpanFrom,
+		SpanTo:        row.SpanTo,
+		GamesInSpan:   row.GamesInSpan,
+		GamesAnalyzed: row.GamesAnalyzed,
+		OwnWins:       row.OwnWins,
+		OwnLosses:     row.OwnLosses,
+		OwnTies:       row.OwnTies,
+		ComputedAt:    row.ComputedAt,
+	}
+}
+
+type personSummaryTOML struct {
+	Positions            string `toml:"positions"`
+	GamesBatting         int    `toml:"games_batting"`
+	GamesBaserunning     int    `toml:"games_baserunning"`
+	GamesPitching        int    `toml:"games_pitching"`
+	GamesFielding        int    `toml:"games_fielding"`
+	BattingAvailable     bool   `toml:"batting_available"`
+	BaserunningAvailable bool   `toml:"baserunning_available"`
+	PitchingAvailable    bool   `toml:"pitching_available"`
+	FieldingAvailable    bool   `toml:"fielding_available"`
+	Highlight            string `toml:"highlight"`
+	Risk                 string `toml:"risk"`
+}
+
+func personSummaryTOMLFrom(row person.PerformanceSummary) personSummaryTOML {
+	return personSummaryTOML{
+		Positions:            row.Positions,
+		GamesBatting:         row.GamesBatting,
+		GamesBaserunning:     row.GamesBaserunning,
+		GamesPitching:        row.GamesPitching,
+		GamesFielding:        row.GamesFielding,
+		BattingAvailable:     row.BattingAvailable,
+		BaserunningAvailable: row.BaserunningAvailable,
+		PitchingAvailable:    row.PitchingAvailable,
+		FieldingAvailable:    row.FieldingAvailable,
+		Highlight:            row.Highlight,
+		Risk:                 row.Risk,
+	}
+}
+
+type personBattingTOML struct {
+	Games              int     `toml:"games"`
+	PA                 int     `toml:"pa"`
+	AtBats             int     `toml:"at_bats"`
+	Hits               int     `toml:"hits"`
+	Singles            int     `toml:"singles"`
+	Doubles            int     `toml:"doubles"`
+	Triples            int     `toml:"triples"`
+	Homeruns           int     `toml:"homeruns"`
+	Walks              int     `toml:"walks"`
+	HitByPitch         int     `toml:"hit_by_pitch"`
+	Strikeouts         int     `toml:"strikeouts"`
+	ReachedOnError     int     `toml:"reached_on_error"`
+	RunsBattedIn       int     `toml:"runs_batted_in"`
+	TotalBases         int     `toml:"total_bases"`
+	BattingAverage     float64 `toml:"batting_average"`
+	OnBasePercentage   float64 `toml:"simplified_on_base_percentage"`
+	SluggingPercentage float64 `toml:"slugging_percentage"`
+	OPS                float64 `toml:"ops"`
+}
+
+func personBattingTOMLFrom(row person.BattingStats) personBattingTOML {
+	return personBattingTOML{
+		Games:              row.Games,
+		PA:                 row.PA,
+		AtBats:             row.AtBats,
+		Hits:               row.Hits,
+		Singles:            row.Singles,
+		Doubles:            row.Doubles,
+		Triples:            row.Triples,
+		Homeruns:           row.Homeruns,
+		Walks:              row.Walks,
+		HitByPitch:         row.HitByPitch,
+		Strikeouts:         row.Strikeouts,
+		ReachedOnError:     row.ReachedOnError,
+		RunsBattedIn:       row.RunsBattedIn,
+		TotalBases:         row.TotalBases,
+		BattingAverage:     row.BattingAverage,
+		OnBasePercentage:   row.OnBasePercentage,
+		SluggingPercentage: row.SluggingPercentage,
+		OPS:                row.OPS,
+	}
+}
+
+type personBaserunningTOML struct {
+	Games                int     `toml:"games"`
+	Runs                 int     `toml:"runs"`
+	StolenBases          int     `toml:"stolen_bases"`
+	CaughtStealing       int     `toml:"caught_stealing"`
+	StolenBaseAttempts   int     `toml:"stolen_base_attempts"`
+	StolenBasePercentage float64 `toml:"stolen_base_percentage"`
+	ExtraBasesTaken      int     `toml:"extra_bases_taken"`
+	BaserunningOuts      int     `toml:"baserunning_outs"`
+}
+
+func personBaserunningTOMLFrom(row person.BaserunningStats) personBaserunningTOML {
+	return personBaserunningTOML{
+		Games:                row.Games,
+		Runs:                 row.Runs,
+		StolenBases:          row.StolenBases,
+		CaughtStealing:       row.CaughtStealing,
+		StolenBaseAttempts:   row.StolenBaseAttempts,
+		StolenBasePercentage: row.StolenBasePercentage,
+		ExtraBasesTaken:      row.ExtraBasesTaken,
+		BaserunningOuts:      row.BaserunningOuts,
+	}
+}
+
+type personPitchingTOML struct {
+	Games              int      `toml:"games"`
+	OutsRecorded       int      `toml:"outs_recorded"`
+	InningsPitched     float64  `toml:"innings_pitched"`
+	BattersFaced       int      `toml:"batters_faced"`
+	HitsAllowed        int      `toml:"hits_allowed"`
+	WalksAllowed       int      `toml:"walks_allowed"`
+	Strikeouts         int      `toml:"strikeouts"`
+	HomerunsAllowed    int      `toml:"homeruns_allowed"`
+	RunsAllowed        int      `toml:"runs_allowed"`
+	EarnedRuns         int      `toml:"earned_runs"`
+	RA9                float64  `toml:"ra9"`
+	ERA                *float64 `toml:"era,omitempty"`
+	WHIP               float64  `toml:"whip"`
+	StrikeoutWalkRatio *float64 `toml:"strikeout_walk_ratio,omitempty"`
+	WildPitches        int      `toml:"wild_pitches"`
+	Balks              int      `toml:"balks"`
+	Pickoffs           int      `toml:"pickoffs"`
+	HitBatters         int      `toml:"hit_batters"`
+}
+
+func personPitchingTOMLFrom(row person.PitchingStats) personPitchingTOML {
+	return personPitchingTOML{
+		Games:              row.Games,
+		OutsRecorded:       row.OutsRecorded,
+		InningsPitched:     row.InningsPitched,
+		BattersFaced:       row.BattersFaced,
+		HitsAllowed:        row.HitsAllowed,
+		WalksAllowed:       row.WalksAllowed,
+		Strikeouts:         row.Strikeouts,
+		HomerunsAllowed:    row.HomerunsAllowed,
+		RunsAllowed:        row.RunsAllowed,
+		EarnedRuns:         row.EarnedRuns,
+		RA9:                row.RA9,
+		ERA:                row.ERA,
+		WHIP:               row.WHIP,
+		StrikeoutWalkRatio: row.StrikeoutWalkRatio,
+		WildPitches:        row.WildPitches,
+		Balks:              row.Balks,
+		Pickoffs:           row.Pickoffs,
+		HitBatters:         row.HitBatters,
+	}
+}
+
+type personFieldingTOML struct {
+	Games              int     `toml:"games"`
+	Positions          string  `toml:"positions"`
+	Putouts            int     `toml:"putouts"`
+	Assists            int     `toml:"assists"`
+	Errors             int     `toml:"errors"`
+	TotalChances       int     `toml:"total_chances"`
+	FieldingPercentage float64 `toml:"fielding_percentage"`
+	DoublePlays        int     `toml:"double_plays"`
+	PassedBalls        int     `toml:"passed_balls"`
+	OutfieldAssists    int     `toml:"outfield_assists"`
+}
+
+func personFieldingTOMLFrom(row person.FieldingStats) personFieldingTOML {
+	return personFieldingTOML{
+		Games:              row.Games,
+		Positions:          row.Positions,
+		Putouts:            row.Putouts,
+		Assists:            row.Assists,
+		Errors:             row.Errors,
+		TotalChances:       row.TotalChances,
+		FieldingPercentage: row.FieldingPercentage,
+		DoublePlays:        row.DoublePlays,
+		PassedBalls:        row.PassedBalls,
+		OutfieldAssists:    row.OutfieldAssists,
 	}
 }
 
