@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"bastion/internal/domain/drill"
@@ -19,6 +22,7 @@ import (
 
 type CLI struct {
 	DB     string    `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
+	Format string    `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
 	Player PlayerCmd `cmd:"" help:"Manage players."`
 	Report ReportCmd `cmd:"" help:"Manage training reports."`
 	Game   GameCmd   `cmd:"" help:"Manage games."`
@@ -32,11 +36,7 @@ type PlayerCmd struct {
 }
 
 type PlayerAddCmd struct {
-	Name      string `required:"" help:"Player name; cannot be empty."`
-	Number    int    `required:"" help:"Jersey number, >= 0."`
-	Bat       string `required:"" help:"Batting hand(s): left,right. Use comma for multiple values, for example left,right."`
-	Throw     string `name:"throw" required:"" help:"Throwing hand(s): left,right. Use comma for multiple values, for example right."`
-	Positions string `required:"" help:"Positions: pitcher,catcher,infield,outfield. Use comma for multiple values."`
+	Input string `required:"" help:"Path to player JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type PlayerReadCmd struct {
@@ -49,10 +49,7 @@ type ReportCmd struct {
 }
 
 type ReportWriteCmd struct {
-	Name       string `required:"" help:"Player name; cannot be empty."`
-	Date       string `required:"" help:"Training date, formatted as YYYY-MM-DD."`
-	Content    string `required:"" help:"Training content; cannot be empty."`
-	Reflection string `required:"" help:"Training reflection; cannot be empty."`
+	Input string `required:"" help:"Path to training report JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type ReportReadCmd struct {
@@ -72,23 +69,11 @@ type GameCmd struct {
 }
 
 type GameWriteCmd struct {
-	Date          string `required:"" help:"Game date, formatted as YYYY-MM-DD."`
-	StartTime     string `help:"Game start time, formatted as HH:MM; omit when unknown."`
-	Opponent      string `required:"" help:"Opponent name; cannot be empty."`
-	BattingSide   string `required:"" help:"Own batting side: top,bottom."`
-	OwnScore      int    `required:"" help:"Own final score, >= 0."`
-	OpponentScore int    `required:"" help:"Opponent final score, >= 0."`
-	Raw           string `required:"" help:"Raw natural language game description; cannot be empty."`
-	LineupJSON    string `name:"lineup-json" default:"[]" help:"JSON array of lineup records. team: own,opponent. starting_position: P,C,1B,2B,3B,SS,LF,CF,RF."`
-	EventsJSON    string `name:"events-json" default:"[]" help:"JSON array of game fact events. event_kind: plate_result,runner_movement,fielding_credit."`
+	Input string `required:"" help:"Path to complete game JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameCreateCmd struct {
-	Date        string `required:"" help:"Game date, formatted as YYYY-MM-DD."`
-	StartTime   string `help:"Game start time, formatted as HH:MM; omit when unknown."`
-	Opponent    string `required:"" help:"Opponent name; cannot be empty."`
-	BattingSide string `required:"" help:"Own batting side: top,bottom."`
-	Raw         string `required:"" help:"Raw natural language game description; cannot be empty."`
+	Input string `required:"" help:"Path to game JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameLineupCmd struct {
@@ -96,11 +81,7 @@ type GameLineupCmd struct {
 }
 
 type GameLineupAddCmd struct {
-	GameID           int64   `required:"" help:"Game id, > 0."`
-	Team             string  `required:"" help:"Team: own,opponent."`
-	Player           string  `required:"" help:"Player name; cannot be empty."`
-	BattingOrder     *int    `help:"Batting order, 1-9; omit for substitute or unknown."`
-	StartingPosition *string `help:"Starting position: P,C,1B,2B,3B,SS,LF,CF,RF. Omit for non-starter or unknown."`
+	Input string `required:"" help:"Path to game lineup JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameEventCmd struct {
@@ -108,8 +89,7 @@ type GameEventCmd struct {
 }
 
 type GameEventWriteCmd struct {
-	GameID     int64  `required:"" help:"Game id to append events to; must exist."`
-	EventsJSON string `name:"events-json" required:"" help:"JSON array of game fact events; supports plate_result, runner_movement, and fielding_credit."`
+	Input string `required:"" help:"Path to game event JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameScoreCmd struct {
@@ -117,9 +97,7 @@ type GameScoreCmd struct {
 }
 
 type GameScoreSetCmd struct {
-	GameID        int64 `required:"" help:"Game id, > 0."`
-	OwnScore      int   `required:"" help:"Own final score, >= 0."`
-	OpponentScore int   `required:"" help:"Opponent final score, >= 0."`
+	Input string `required:"" help:"Path to game score JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameAnalysisCmd struct {
@@ -129,7 +107,7 @@ type GameAnalysisCmd struct {
 }
 
 type GameAnalysisGenerateCmd struct {
-	GameID int64 `required:"" help:"Game id to generate analysis for; must exist and have analyzable events."`
+	Input string `required:"" help:"Path to game analysis generation JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameAnalysisReadCmd struct {
@@ -157,11 +135,7 @@ type DrillRecommendCmd struct {
 }
 
 type DrillWriteCmd struct {
-	Name    string `required:"" help:"Recommender name; must be a registered player."`
-	URL     string `name:"url" required:"" help:"Video URL; cannot be empty."`
-	Reason  string `required:"" help:"Recommendation reason; cannot be empty."`
-	Type    string `required:"" help:"Drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
-	Summary string `required:"" help:"AI-generated summary; cannot be empty."`
+	Input string `required:"" help:"Path to drill recommendation JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type DrillListCmd struct {
@@ -190,9 +164,15 @@ type Context struct {
 	DrillService  *drill.Service
 	PersonService *person.Service
 	Out           io.Writer
+	In            io.Reader
+	Format        string
 }
 
 func Run(args []string, stdout io.Writer, stderr io.Writer) error {
+	return RunWithIO(args, os.Stdin, stdout, stderr)
+}
+
+func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 	var app CLI
 	parser := kong.Must(
 		&app,
@@ -203,36 +183,48 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 
 	ctx, err := parser.Parse(args)
 	if err != nil {
+		writeError(stdout, app.Format, err)
 		return err
 	}
 
 	store, err := sqlite.Open(app.DB)
 	if err != nil {
+		writeError(stdout, app.Format, err)
 		return err
 	}
 	defer store.Close()
 
 	if err := store.Init(); err != nil {
+		writeError(stdout, app.Format, err)
 		return err
 	}
 
-	return ctx.Run(&Context{
+	runErr := ctx.Run(&Context{
 		PlayerService: player.NewService(store),
 		ReportService: report.NewService(store),
 		GameService:   game.NewService(store),
 		DrillService:  drill.NewService(store),
 		PersonService: person.NewService(store),
 		Out:           stdout,
+		In:            stdin,
+		Format:        app.Format,
 	})
+	if runErr != nil {
+		writeError(stdout, app.Format, runErr)
+	}
+	return runErr
 }
 
 func (cmd *PlayerAddCmd) Run(ctx *Context) error {
-	player, err := ctx.PlayerService.AddPlayer(cmd.Name, cmd.Number, cmd.Bat, cmd.Throw, cmd.Positions)
+	var input playerAddInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	player, err := ctx.PlayerService.AddPlayer(input.Name, input.Number, input.Bat, input.Throw, input.Positions)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "player added: %s\n", player.Name)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "player", "name": player.Name}, fmt.Sprintf("player added: %s\n", player.Name))
 }
 
 func (cmd *PlayerReadCmd) Run(ctx *Context) error {
@@ -240,17 +232,19 @@ func (cmd *PlayerReadCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printPlayer(ctx.Out, player)
-	return nil
+	return printPlayer(ctx, player)
 }
 
 func (cmd *ReportWriteCmd) Run(ctx *Context) error {
-	report, err := ctx.ReportService.WriteReport(cmd.Name, cmd.Date, cmd.Content, cmd.Reflection)
+	var input reportWriteInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	report, err := ctx.ReportService.WriteReport(input.Name, input.Date, input.Content, input.Reflection)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "report saved: %s %s\n", report.Name, report.Date)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "report", "name": report.Name, "date": report.Date}, fmt.Sprintf("report saved: %s %s\n", report.Name, report.Date))
 }
 
 func (cmd *ReportReadCmd) Run(ctx *Context) error {
@@ -258,99 +252,116 @@ func (cmd *ReportReadCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printReport(ctx.Out, report)
-	return nil
+	return printReport(ctx, report)
 }
 
 func (cmd *GameWriteCmd) Run(ctx *Context) error {
-	battingSide, err := parseBattingSide(cmd.BattingSide)
+	var input gameWriteInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	battingSide, err := parseBattingSide(input.BattingSide)
 	if err != nil {
 		return err
 	}
-	lineups, err := parseLineupsJSON(cmd.LineupJSON)
+	lineups, err := lineupsFromJSON(input.Lineups)
 	if err != nil {
 		return err
 	}
-	events, err := parseEventsJSON(cmd.EventsJSON)
+	events, err := eventsFromJSON(input.Events)
 	if err != nil {
 		return err
 	}
 	id, err := ctx.GameService.WriteGame(
-		cmd.Date,
-		cmd.StartTime,
-		cmd.Opponent,
+		input.Date,
+		input.StartTime,
+		input.Opponent,
 		battingSide,
-		cmd.OwnScore,
-		cmd.OpponentScore,
-		cmd.Raw,
+		input.OwnScore,
+		input.OpponentScore,
+		input.Raw,
 		lineups,
 		events,
 	)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "game saved: %d\n", id)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "game", "id": id}, fmt.Sprintf("game saved: %d\n", id))
 }
 
 func (cmd *GameCreateCmd) Run(ctx *Context) error {
-	battingSide, err := parseBattingSide(cmd.BattingSide)
+	var input gameCreateInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	battingSide, err := parseBattingSide(input.BattingSide)
 	if err != nil {
 		return err
 	}
-	id, err := ctx.GameService.CreateGame(cmd.Date, cmd.StartTime, cmd.Opponent, battingSide, cmd.Raw)
+	id, err := ctx.GameService.CreateGame(input.Date, input.StartTime, input.Opponent, battingSide, input.Raw)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "game created: %d\n", id)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "game", "id": id}, fmt.Sprintf("game created: %d\n", id))
 }
 
 func (cmd *GameLineupAddCmd) Run(ctx *Context) error {
-	team, err := parseTeam(cmd.Team)
+	var input gameLineupAddInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	team, err := parseTeam(input.Team)
 	if err != nil {
 		return err
 	}
-	startingPosition, err := parseOptionalStartingPosition(cmd.StartingPosition)
+	startingPosition, err := parseOptionalStartingPosition(input.StartingPosition)
 	if err != nil {
 		return err
 	}
-	id, err := ctx.GameService.AddGameLineup(cmd.GameID, team, cmd.Player, cmd.BattingOrder, startingPosition)
+	id, err := ctx.GameService.AddGameLineup(input.GameID, team, input.Player, input.BattingOrder, startingPosition)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "lineup added: %d\n", id)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "game_lineup", "id": id, "game_id": input.GameID}, fmt.Sprintf("lineup added: %d\n", id))
 }
 
 func (cmd *GameEventWriteCmd) Run(ctx *Context) error {
-	events, err := parseEventsJSON(cmd.EventsJSON)
+	var input gameEventWriteInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	events, err := eventsFromJSON(input.Events)
 	if err != nil {
 		return err
 	}
-	count, err := ctx.GameService.WriteGameEvents(cmd.GameID, events)
+	count, err := ctx.GameService.WriteGameEvents(input.GameID, events)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "game events saved: %d\n", count)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "game_events", "game_id": input.GameID, "count": count}, fmt.Sprintf("game events saved: %d\n", count))
 }
 
 func (cmd *GameScoreSetCmd) Run(ctx *Context) error {
-	if err := ctx.GameService.SetGameScore(cmd.GameID, cmd.OwnScore, cmd.OpponentScore); err != nil {
+	var input gameScoreSetInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "score saved: %d\n", cmd.GameID)
-	return nil
+	if err := ctx.GameService.SetGameScore(input.GameID, input.OwnScore, input.OpponentScore); err != nil {
+		return err
+	}
+	return writeCommandResult(ctx, map[string]any{"resource": "game_score", "game_id": input.GameID, "own_score": input.OwnScore, "opponent_score": input.OpponentScore}, fmt.Sprintf("score saved: %d\n", input.GameID))
 }
 
 func (cmd *GameAnalysisGenerateCmd) Run(ctx *Context) error {
-	id, err := ctx.GameService.GenerateGameAnalysis(cmd.GameID)
+	var input gameAnalysisGenerateInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	id, err := ctx.GameService.GenerateGameAnalysis(input.GameID)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "game analysis generated: %d\n", id)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "game_analysis", "id": id, "game_id": input.GameID}, fmt.Sprintf("game analysis generated: %d\n", id))
 }
 
 func (cmd *GameAnalysisReadCmd) Run(ctx *Context) error {
@@ -358,8 +369,7 @@ func (cmd *GameAnalysisReadCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printGameAnalysis(ctx.Out, analysis)
-	return nil
+	return printGameAnalysis(ctx, analysis)
 }
 
 func (cmd *GameAnalysisListCmd) Run(ctx *Context) error {
@@ -367,8 +377,7 @@ func (cmd *GameAnalysisListCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printGameAnalysisList(ctx.Out, items)
-	return nil
+	return printGameAnalysisList(ctx, items)
 }
 
 func (cmd *GameReadCmd) Run(ctx *Context) error {
@@ -376,8 +385,7 @@ func (cmd *GameReadCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printGameDetails(ctx.Out, details)
-	return nil
+	return printGameDetails(ctx, details)
 }
 
 func (cmd *GameListCmd) Run(ctx *Context) error {
@@ -385,21 +393,23 @@ func (cmd *GameListCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printGameList(ctx.Out, games)
-	return nil
+	return printGameList(ctx, games)
 }
 
 func (cmd *DrillWriteCmd) Run(ctx *Context) error {
-	drillType, err := parseDrillType(cmd.Type)
+	var input drillWriteInput
+	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+		return err
+	}
+	drillType, err := parseDrillType(input.Type)
 	if err != nil {
 		return err
 	}
-	id, err := ctx.DrillService.WriteRecommendation(cmd.Name, cmd.URL, cmd.Reason, drillType, cmd.Summary)
+	id, err := ctx.DrillService.WriteRecommendation(input.Name, input.URL, input.Reason, drillType, input.Summary)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(ctx.Out, "drill recommendation saved: %d\n", id)
-	return nil
+	return writeCommandResult(ctx, map[string]any{"resource": "drill_recommendation", "id": id}, fmt.Sprintf("drill recommendation saved: %d\n", id))
 }
 
 func (cmd *DrillListCmd) Run(ctx *Context) error {
@@ -414,8 +424,7 @@ func (cmd *DrillListCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printDrillRecommendationList(ctx.Out, recommendations)
-	return nil
+	return printDrillRecommendationList(ctx, recommendations)
 }
 
 func (cmd *PersonAnalysisReadCmd) Run(ctx *Context) error {
@@ -423,16 +432,44 @@ func (cmd *PersonAnalysisReadCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	printPersonAnalysis(ctx.Out, result)
-	return nil
+	return printPersonAnalysis(ctx, result)
 }
 
-func printPlayer(out io.Writer, p player.Player) {
-	writeTOML(out, playerReadTOML{Player: playerTOMLFrom(p)})
+func printPlayer(ctx *Context, p player.Player) error {
+	return writeStructured(ctx, playerReadTOML{Player: playerTOMLFrom(p)})
 }
 
-func printReport(out io.Writer, report report.Report) {
-	writeTOML(out, reportReadTOML{Report: reportTOMLFrom(report)})
+func printReport(ctx *Context, report report.Report) error {
+	return writeStructured(ctx, reportReadTOML{Report: reportTOMLFrom(report)})
+}
+
+func writeStructured(ctx *Context, value any) error {
+	switch ctx.Format {
+	case "toml":
+		writeTOML(ctx.Out, value)
+		return nil
+	case "text":
+		writeTOML(ctx.Out, value)
+		return nil
+	default:
+		data, err := dataFromTOMLTags(value)
+		if err != nil {
+			return err
+		}
+		return writeJSONData(ctx.Out, data)
+	}
+}
+
+func writeCommandResult(ctx *Context, data map[string]any, text string) error {
+	if ctx.Format == "text" {
+		fmt.Fprint(ctx.Out, text)
+		return nil
+	}
+	if ctx.Format == "toml" {
+		writeTOML(ctx.Out, data)
+		return nil
+	}
+	return writeJSONData(ctx.Out, data)
 }
 
 func writeTOML(out io.Writer, value any) {
@@ -441,6 +478,151 @@ func writeTOML(out io.Writer, value any) {
 		panic(fmt.Sprintf("marshal CLI output as TOML: %v", err))
 	}
 	fmt.Fprint(out, string(data))
+}
+
+func writeJSONData(out io.Writer, data any) error {
+	return writeJSON(out, jsonEnvelope{Ok: true, Data: data})
+}
+
+func writeError(out io.Writer, format string, err error) {
+	if err == nil || format == "toml" || format == "text" {
+		return
+	}
+	_ = writeJSON(out, jsonEnvelope{
+		Ok: false,
+		Error: &jsonError{
+			Code:    errorCode(err),
+			Message: err.Error(),
+		},
+	})
+}
+
+func writeJSON(out io.Writer, value any) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(value)
+}
+
+func dataFromTOMLTags(value any) (any, error) {
+	data, err := toml.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal CLI output as TOML: %w", err)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal(data, &decoded); err != nil {
+		return nil, fmt.Errorf("convert CLI output to JSON data: %w", err)
+	}
+	return decoded, nil
+}
+
+func readJSONInput(ctx *Context, path string, value any) error {
+	raw, err := readInput(ctx, path)
+	if err != nil {
+		return err
+	}
+	if err := requireJSONFields(raw, requiredFields(value)); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return fmt.Errorf("invalid --input: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("invalid --input: expected a single JSON value")
+	}
+	return nil
+}
+
+func requiredFields(value any) []string {
+	switch value.(type) {
+	case *playerAddInput:
+		return []string{"name", "number", "bat", "throw", "positions"}
+	case *reportWriteInput:
+		return []string{"name", "date", "content", "reflection"}
+	case *gameWriteInput:
+		return []string{"date", "opponent", "batting_side", "own_score", "opponent_score", "raw"}
+	case *gameCreateInput:
+		return []string{"date", "opponent", "batting_side", "raw"}
+	case *gameLineupAddInput:
+		return []string{"game_id", "team", "player"}
+	case *gameEventWriteInput:
+		return []string{"game_id", "events"}
+	case *gameScoreSetInput:
+		return []string{"game_id", "own_score", "opponent_score"}
+	case *gameAnalysisGenerateInput:
+		return []string{"game_id"}
+	case *drillWriteInput:
+		return []string{"name", "url", "reason", "type", "summary"}
+	default:
+		return nil
+	}
+}
+
+func requireJSONFields(raw []byte, fields []string) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return nil
+	}
+	for _, field := range fields {
+		if _, ok := object[field]; !ok {
+			return fmt.Errorf("missing required field %q", field)
+		}
+	}
+	return nil
+}
+
+func readInput(ctx *Context, path string) ([]byte, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("--input is required")
+	}
+	if path == "-" {
+		raw, err := io.ReadAll(ctx.In)
+		if err != nil {
+			return nil, fmt.Errorf("read --input -: %w", err)
+		}
+		return raw, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read --input %q: %w", path, err)
+	}
+	return raw, nil
+}
+
+func errorCode(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "missing required"):
+		return "missing_required"
+	case strings.Contains(message, "unknown field"):
+		return "unknown_field"
+	case strings.Contains(message, "invalid character"), strings.Contains(message, "cannot unmarshal"), strings.Contains(message, "unexpected eof"):
+		return "parse_error"
+	case strings.Contains(message, "not found"):
+		return "not_found"
+	case strings.Contains(message, "already exists"):
+		return "conflict"
+	case strings.Contains(message, "invalid"), strings.Contains(message, "expected"), strings.Contains(message, "cannot be empty"), strings.Contains(message, "no analyzable"):
+		return "invalid_value"
+	default:
+		return "internal_error"
+	}
+}
+
+type jsonEnvelope struct {
+	Ok    bool       `json:"ok"`
+	Data  any        `json:"data,omitempty"`
+	Error *jsonError `json:"error,omitempty"`
+}
+
+type jsonError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type playerReadTOML struct {
@@ -485,6 +667,72 @@ func reportTOMLFrom(r report.Report) reportTOML {
 	}
 }
 
+type playerAddInput struct {
+	Name      string `json:"name"`
+	Number    int    `json:"number"`
+	Bat       string `json:"bat"`
+	Throw     string `json:"throw"`
+	Positions string `json:"positions"`
+}
+
+type reportWriteInput struct {
+	Name       string `json:"name"`
+	Date       string `json:"date"`
+	Content    string `json:"content"`
+	Reflection string `json:"reflection"`
+}
+
+type gameWriteInput struct {
+	Date          string       `json:"date"`
+	StartTime     string       `json:"start_time"`
+	Opponent      string       `json:"opponent"`
+	BattingSide   string       `json:"batting_side"`
+	OwnScore      int          `json:"own_score"`
+	OpponentScore int          `json:"opponent_score"`
+	Raw           string       `json:"raw"`
+	Lineups       []lineupJSON `json:"lineups"`
+	Events        []eventJSON  `json:"events"`
+}
+
+type gameCreateInput struct {
+	Date        string `json:"date"`
+	StartTime   string `json:"start_time"`
+	Opponent    string `json:"opponent"`
+	BattingSide string `json:"batting_side"`
+	Raw         string `json:"raw"`
+}
+
+type gameLineupAddInput struct {
+	GameID           int64   `json:"game_id"`
+	Team             string  `json:"team"`
+	Player           string  `json:"player"`
+	BattingOrder     *int    `json:"batting_order"`
+	StartingPosition *string `json:"starting_position"`
+}
+
+type gameEventWriteInput struct {
+	GameID int64       `json:"game_id"`
+	Events []eventJSON `json:"events"`
+}
+
+type gameScoreSetInput struct {
+	GameID        int64 `json:"game_id"`
+	OwnScore      int   `json:"own_score"`
+	OpponentScore int   `json:"opponent_score"`
+}
+
+type gameAnalysisGenerateInput struct {
+	GameID int64 `json:"game_id"`
+}
+
+type drillWriteInput struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Reason  string `json:"reason"`
+	Type    string `json:"type"`
+	Summary string `json:"summary"`
+}
+
 type lineupJSON struct {
 	Team             string  `json:"team"`
 	Player           string  `json:"player"`
@@ -514,20 +762,16 @@ type eventJSON struct {
 	Description   string  `json:"description"`
 }
 
-func parseLineupsJSON(raw string) ([]game.GameLineup, error) {
-	var records []lineupJSON
-	if err := json.Unmarshal([]byte(raw), &records); err != nil {
-		return nil, fmt.Errorf("invalid --lineup-json: %w", err)
-	}
+func lineupsFromJSON(records []lineupJSON) ([]game.GameLineup, error) {
 	lineups := make([]game.GameLineup, 0, len(records))
 	for i, record := range records {
 		team, err := parseTeam(record.Team)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --lineup-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid lineups[%d]: %w", i, err)
 		}
 		startingPosition, err := parseOptionalStartingPosition(record.StartingPosition)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --lineup-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid lineups[%d]: %w", i, err)
 		}
 		lineups = append(lineups, game.GameLineup{
 			Team:             team,
@@ -542,34 +786,30 @@ func parseLineupsJSON(raw string) ([]game.GameLineup, error) {
 	return lineups, nil
 }
 
-func parseEventsJSON(raw string) ([]game.GameEvent, error) {
-	var records []eventJSON
-	if err := json.Unmarshal([]byte(raw), &records); err != nil {
-		return nil, fmt.Errorf("invalid --events-json: %w", err)
-	}
+func eventsFromJSON(records []eventJSON) ([]game.GameEvent, error) {
 	events := make([]game.GameEvent, 0, len(records))
 	for i, record := range records {
 		half, err := parseHalf(record.Half)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --events-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid events[%d]: %w", i, err)
 		}
 		kind, err := parseEventKind(record.EventKind)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --events-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid events[%d]: %w", i, err)
 		}
 		team, err := parseTeam(record.Team)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --events-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid events[%d]: %w", i, err)
 		}
 		result, err := parseEventResult(kind, record.Result)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --events-json item %d: %w", i+1, err)
+			return nil, fmt.Errorf("invalid events[%d]: %w", i, err)
 		}
 		var reason *game.RunnerReason
 		if record.Reason != nil && strings.TrimSpace(*record.Reason) != "" {
 			parsed, err := parseRunnerReason(*record.Reason)
 			if err != nil {
-				return nil, fmt.Errorf("invalid --events-json item %d: %w", i+1, err)
+				return nil, fmt.Errorf("invalid events[%d]: %w", i, err)
 			}
 			reason = &parsed
 		}
@@ -601,7 +841,7 @@ func parseEventsJSON(raw string) ([]game.GameEvent, error) {
 	return events, nil
 }
 
-func printGameDetails(out io.Writer, details game.GameDetails) {
+func printGameDetails(ctx *Context, details game.GameDetails) error {
 	output := gameDetailsTOML{
 		Game:    gameTOMLFrom(details.Game),
 		Lineups: make([]lineupTOML, 0, len(details.Lineups)),
@@ -613,21 +853,21 @@ func printGameDetails(out io.Writer, details game.GameDetails) {
 	for _, row := range details.Events {
 		output.Events = append(output.Events, eventTOMLFrom(row))
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
-func printGameList(out io.Writer, games []game.Game) {
-	if len(games) == 0 {
-		return
+func printGameList(ctx *Context, games []game.Game) error {
+	if len(games) == 0 && ctx.Format == "toml" {
+		return nil
 	}
 	output := gameListTOML{Games: make([]gameTOML, 0, len(games))}
 	for _, row := range games {
 		output.Games = append(output.Games, gameTOMLFrom(row))
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
-func printGameAnalysis(out io.Writer, result game.GameAnalysisResult) {
+func printGameAnalysis(ctx *Context, result game.GameAnalysisResult) error {
 	output := gameAnalysisTOML{
 		Analysis:        gameAnalysisHeaderTOMLFrom(result.Analysis),
 		PlayerSummaries: make([]playerSummaryTOML, 0, len(result.Summaries)),
@@ -655,32 +895,32 @@ func printGameAnalysis(out io.Writer, result game.GameAnalysisResult) {
 	for _, row := range result.DataGaps {
 		output.DataGaps = append(output.DataGaps, dataGapTOMLFrom(row))
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
-func printGameAnalysisList(out io.Writer, items []game.GameAnalysisListItem) {
-	if len(items) == 0 {
-		return
+func printGameAnalysisList(ctx *Context, items []game.GameAnalysisListItem) error {
+	if len(items) == 0 && ctx.Format == "toml" {
+		return nil
 	}
 	output := gameAnalysisListTOML{Analyses: make([]gameAnalysisListItemTOML, 0, len(items))}
 	for _, row := range items {
 		output.Analyses = append(output.Analyses, gameAnalysisListItemTOMLFrom(row))
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
-func printDrillRecommendationList(out io.Writer, recommendations []drill.Recommendation) {
-	if len(recommendations) == 0 {
-		return
+func printDrillRecommendationList(ctx *Context, recommendations []drill.Recommendation) error {
+	if len(recommendations) == 0 && ctx.Format == "toml" {
+		return nil
 	}
 	output := drillRecommendationListTOML{Drills: make([]drillRecommendationTOML, 0, len(recommendations))}
 	for _, row := range recommendations {
 		output.Drills = append(output.Drills, drillRecommendationTOMLFrom(row))
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
-func printPersonAnalysis(out io.Writer, result person.AnalysisResult) {
+func printPersonAnalysis(ctx *Context, result person.AnalysisResult) error {
 	output := personAnalysisTOML{
 		Analysis:    personAnalysisHeaderTOMLFrom(result.Analysis),
 		Summary:     personSummaryTOMLFrom(result.Summary),
@@ -693,7 +933,7 @@ func printPersonAnalysis(out io.Writer, result person.AnalysisResult) {
 	for _, row := range result.DataGaps {
 		output.DataGaps = append(output.DataGaps, dataGapTOML{Scope: row.Scope, Message: row.Message})
 	}
-	writeTOML(out, output)
+	return writeStructured(ctx, output)
 }
 
 type gameDetailsTOML struct {
