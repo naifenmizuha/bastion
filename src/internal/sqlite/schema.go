@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS plate_appearances (
 	description TEXT NOT NULL CHECK(length(trim(description)) > 0),
 	FOREIGN KEY(game_id) REFERENCES games(id)
 );
+
+CREATE TABLE IF NOT EXISTS drill_recommendations (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+	url TEXT NOT NULL CHECK(length(trim(url)) > 0),
+	reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+	type INTEGER NOT NULL CHECK(type BETWEEN 0 AND 6),
+	summary TEXT NOT NULL CHECK(length(trim(summary)) > 0),
+	created_at TEXT NOT NULL CHECK(length(trim(created_at)) > 0)
+);
 `)
 	return err
 }

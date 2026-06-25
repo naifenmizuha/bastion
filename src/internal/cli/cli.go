@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"bastion/internal/domain/drill"
 	"bastion/internal/domain/game"
 	"bastion/internal/domain/player"
 	"bastion/internal/domain/report"
@@ -19,6 +20,7 @@ type CLI struct {
 	Player PlayerCmd `cmd:"" help:"Manage players."`
 	Report ReportCmd `cmd:"" help:"Manage training reports."`
 	Game   GameCmd   `cmd:"" help:"Manage games."`
+	Drill  DrillCmd  `cmd:"" help:"Manage drill recommendations."`
 }
 
 type PlayerCmd struct {
@@ -133,10 +135,33 @@ type GameListCmd struct {
 	Date string `help:"Filter games by date, formatted as YYYY-MM-DD."`
 }
 
+type DrillCmd struct {
+	Recommend DrillRecommendCmd `cmd:"" help:"Manage drill recommendations."`
+}
+
+type DrillRecommendCmd struct {
+	Write DrillWriteCmd `cmd:"" help:"Write a drill recommendation."`
+	List  DrillListCmd  `cmd:"" help:"List drill recommendations."`
+}
+
+type DrillWriteCmd struct {
+	Name    string `required:"" help:"Recommender name; must be a registered player."`
+	URL     string `name:"url" required:"" help:"Video URL; cannot be empty."`
+	Reason  string `required:"" help:"Recommendation reason; cannot be empty."`
+	Type    string `required:"" help:"Drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
+	Summary string `required:"" help:"AI-generated summary; cannot be empty."`
+}
+
+type DrillListCmd struct {
+	Name string `help:"Filter by recommender name."`
+	Type string `help:"Filter by drill type: pitching,catching,hitting,strength,baserunning,infield,outfield."`
+}
+
 type Context struct {
 	PlayerService *player.Service
 	ReportService *report.Service
 	GameService   *game.Service
+	DrillService  *drill.Service
 	Out           io.Writer
 }
 
@@ -168,6 +193,7 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) error {
 		PlayerService: player.NewService(store),
 		ReportService: report.NewService(store),
 		GameService:   game.NewService(store),
+		DrillService:  drill.NewService(store),
 		Out:           stdout,
 	})
 }
@@ -321,6 +347,35 @@ func (cmd *GameListCmd) Run(ctx *Context) error {
 		return err
 	}
 	printGameList(ctx.Out, games)
+	return nil
+}
+
+func (cmd *DrillWriteCmd) Run(ctx *Context) error {
+	drillType, err := parseDrillType(cmd.Type)
+	if err != nil {
+		return err
+	}
+	id, err := ctx.DrillService.WriteRecommendation(cmd.Name, cmd.URL, cmd.Reason, drillType, cmd.Summary)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(ctx.Out, "drill recommendation saved: %d\n", id)
+	return nil
+}
+
+func (cmd *DrillListCmd) Run(ctx *Context) error {
+	drillType, err := parseOptionalDrillType(cmd.Type)
+	if err != nil {
+		return err
+	}
+	recommendations, err := ctx.DrillService.ListRecommendations(drill.ListFilter{
+		Name: cmd.Name,
+		Type: drillType,
+	})
+	if err != nil {
+		return err
+	}
+	printDrillRecommendationList(ctx.Out, recommendations)
 	return nil
 }
 
@@ -486,6 +541,20 @@ func printGameList(out io.Writer, games []game.Game) {
 	}
 }
 
+func printDrillRecommendationList(out io.Writer, recommendations []drill.Recommendation) {
+	for _, r := range recommendations {
+		fmt.Fprintf(out, "id: %d name: %s type: %s url: %s reason: %s summary: %s created_at: %s\n",
+			r.ID,
+			r.Name,
+			formatDrillType(r.Type),
+			r.URL,
+			r.Reason,
+			r.Summary,
+			r.CreatedAt,
+		)
+	}
+}
+
 func formatOptionalInt(value *int) string {
 	if value == nil {
 		return ""
@@ -539,6 +608,16 @@ var startingPositionOptions = []stringEnum[int]{
 	{label: "RF", value: 9},
 }
 
+var drillTypeOptions = []stringEnum[drill.DrillType]{
+	{label: "pitching", value: drill.DrillTypePitching},
+	{label: "catching", value: drill.DrillTypeCatching},
+	{label: "hitting", value: drill.DrillTypeHitting},
+	{label: "strength", value: drill.DrillTypeStrength},
+	{label: "baserunning", value: drill.DrillTypeBaserunning},
+	{label: "infield", value: drill.DrillTypeInfield},
+	{label: "outfield", value: drill.DrillTypeOutfield},
+}
+
 func parseBattingSide(raw string) (game.BattingSide, error) {
 	return parseStringEnum("--batting-side", raw, battingSideOptions, strings.ToLower)
 }
@@ -560,6 +639,21 @@ func parseOptionalStartingPosition(raw *string) (*int, error) {
 		return nil, nil
 	}
 	value, err := parseStringEnum("--starting-position", *raw, startingPositionOptions, strings.ToUpper)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func parseDrillType(raw string) (drill.DrillType, error) {
+	return parseStringEnum("--type", raw, drillTypeOptions, strings.ToLower)
+}
+
+func parseOptionalDrillType(raw string) (*drill.DrillType, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	value, err := parseDrillType(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -606,6 +700,10 @@ func formatOptionalStartingPosition(value *int) string {
 		return ""
 	}
 	return formatStringEnum(*value, startingPositionOptions)
+}
+
+func formatDrillType(value drill.DrillType) string {
+	return formatStringEnum(value, drillTypeOptions)
 }
 
 func formatStringEnum[T comparable](value T, options []stringEnum[T]) string {

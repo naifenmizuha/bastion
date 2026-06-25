@@ -241,6 +241,25 @@ func TestHelpTextDescribesStringChoices(t *testing.T) {
 				"Filter games by date, formatted as YYYY-MM-DD.",
 			},
 		},
+		{
+			name: "drill recommend write",
+			args: []string{"drill", "recommend", "write", "-h"},
+			wantParts: []string{
+				"Recommender name; must be a registered player.",
+				"Drill type:",
+				"pitching,catching,hitting,strength,baserunning,infield,outfield.",
+				"AI-generated summary; cannot be empty.",
+			},
+		},
+		{
+			name: "drill recommend list",
+			args: []string{"drill", "recommend", "list", "-h"},
+			wantParts: []string{
+				"Filter by recommender name.",
+				"Filter by drill type:",
+				"pitching,catching,hitting,strength,baserunning,infield,outfield.",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -527,6 +546,130 @@ func TestGameCommandsRejectInvalidInput(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid --outs") {
 		t.Fatalf("unexpected invalid outs error: %v", err)
+	}
+}
+
+func TestDrillRecommendWriteAndList(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	out, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三",
+		"--url", "https://example.com/a",
+		"--reason", "步伐好",
+		"--type", "infield",
+		"--summary", "讲解内野扑球步伐",
+	)
+	if err != nil {
+		t.Fatalf("drill recommend write failed: %v", err)
+	}
+	if !strings.Contains(out, "drill recommendation saved: 1") {
+		t.Fatalf("unexpected write output: %q", out)
+	}
+
+	_, err = runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三",
+		"--url", "https://example.com/b",
+		"--reason", "发力",
+		"--type", "PITCHING",
+		"--summary", "投球发力链",
+	)
+	if err != nil {
+		t.Fatalf("drill recommend write failed: %v", err)
+	}
+
+	out, err = runCommand(dbPath, "drill", "recommend", "list")
+	if err != nil {
+		t.Fatalf("drill recommend list failed: %v", err)
+	}
+	if !strings.Contains(out, "id: 2 name: 张三 type: pitching") || !strings.Contains(out, "id: 1 name: 张三 type: infield") {
+		t.Fatalf("list output missing rows: %q", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--type", "infield")
+	if err != nil {
+		t.Fatalf("drill recommend list by type failed: %v", err)
+	}
+	if !strings.Contains(out, "type: infield") || strings.Contains(out, "type: pitching") {
+		t.Fatalf("list by type output wrong: %q", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--name", "张三", "--type", "pitching")
+	if err != nil {
+		t.Fatalf("drill recommend list combined failed: %v", err)
+	}
+	if !strings.Contains(out, "type: pitching") || strings.Contains(out, "type: infield") {
+		t.Fatalf("list combined output wrong: %q", out)
+	}
+
+	out, err = runCommand(dbPath, "drill", "recommend", "list", "--name", "不存在")
+	if err != nil {
+		t.Fatalf("drill recommend list empty failed: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected empty list output, got %q", out)
+	}
+}
+
+func TestDrillRecommendWriteRequiresExistingPlayer(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+
+	_, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "不存在",
+		"--url", "https://example.com",
+		"--reason", "步伐",
+		"--type", "infield",
+		"--summary", "讲解",
+	)
+	if err == nil {
+		t.Fatal("expected missing player to fail")
+	}
+	if !strings.Contains(err.Error(), "player not found: 不存在") {
+		t.Fatalf("unexpected missing player error: %v", err)
+	}
+}
+
+func TestDrillRecommendWriteRejectsInvalidType(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	_, err := runCommand(dbPath, "drill", "recommend", "write",
+		"--name", "张三",
+		"--url", "https://example.com",
+		"--reason", "步伐",
+		"--type", "running",
+		"--summary", "讲解",
+	)
+	if err == nil {
+		t.Fatal("expected invalid type to fail")
+	}
+	if !strings.Contains(err.Error(), `invalid --type "running"`) {
+		t.Fatalf("unexpected invalid type error: %v", err)
+	}
+}
+
+func TestDrillRecommendWriteRejectsEmptyFields(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	addTestPlayer(t, dbPath)
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--name", "", "--url", "u", "--reason", "r", "--type", "infield", "--summary", "s"}, "--name cannot be empty"},
+		{[]string{"--name", "张三", "--url", "", "--reason", "r", "--type", "infield", "--summary", "s"}, "--url cannot be empty"},
+		{[]string{"--name", "张三", "--url", "u", "--reason", "", "--type", "infield", "--summary", "s"}, "--reason cannot be empty"},
+		{[]string{"--name", "张三", "--url", "u", "--reason", "r", "--type", "infield", "--summary", ""}, "--summary cannot be empty"},
+	}
+	for _, c := range cases {
+		args := append([]string{"drill", "recommend", "write"}, c.args...)
+		_, err := runCommand(dbPath, args...)
+		if err == nil {
+			t.Fatalf("expected empty field to fail for %q", c.want)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("unexpected error for %q: %v", c.want, err)
+		}
 	}
 }
 
