@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ],
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

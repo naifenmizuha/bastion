@@ -1,6 +1,8 @@
 /bastion
 /bastion.db
-/src/bastion
-/src/bastion.db
+/cli/bastion
+/cli/bastion.db
+/runtime/node_modules
+/runtime/coverage
 /prd
 /out
