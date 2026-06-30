@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bastion Team Manager"
+  short_description: "Operate Bastion team data safely through its CLI"
+  default_prompt: "Use $manage-bastion-team to handle this baseball team management request with authoritative Bastion data."

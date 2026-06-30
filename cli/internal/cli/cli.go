@@ -22,14 +22,15 @@ import (
 )
 
 type CLI struct {
-	DB     string    `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
-	Format string    `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
-	Player PlayerCmd `cmd:"" help:"Manage players."`
-	Report ReportCmd `cmd:"" help:"Manage training reports."`
-	Game   GameCmd   `cmd:"" help:"Manage games."`
-	Lineup LineupCmd `cmd:"" help:"Manage generated game lineups."`
-	Drill  DrillCmd  `cmd:"" help:"Manage drill recommendations."`
-	Person PersonCmd `cmd:"" help:"Manage person cross-period analysis."`
+	DB       string      `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
+	Format   string      `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
+	Player   PlayerCmd   `cmd:"" help:"Manage players."`
+	Report   ReportCmd   `cmd:"" help:"Manage training reports."`
+	Game     GameCmd     `cmd:"" help:"Manage games."`
+	Lineup   LineupCmd   `cmd:"" help:"Manage generated game lineups."`
+	Drill    DrillCmd    `cmd:"" help:"Manage drill recommendations."`
+	Person   PersonCmd   `cmd:"" help:"Manage person cross-period analysis."`
+	Contract ContractCmd `cmd:"" help:"Print machine-readable structured input contracts."`
 }
 
 type PlayerCmd struct {
@@ -265,6 +266,14 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 		return err
 	}
 
+	if ctx.Command() == "contract" {
+		return ctx.Run(&Context{
+			Out:    stdout,
+			In:     stdin,
+			Format: app.Format,
+		})
+	}
+
 	store, err := sqlite.Open(app.DB)
 	if err != nil {
 		writeError(stdout, app.Format, err)
@@ -297,7 +306,7 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 // Run 读取球员输入并调用球员创建服务。
 func (cmd *PlayerAddCmd) Run(ctx *Context) error {
 	var input playerAddInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"player", "add"}); err != nil {
 		return err
 	}
 	player, err := ctx.PlayerService.AddPlayer(input.Name, input.Number, input.Bat, input.Throw, input.Positions)
@@ -328,7 +337,7 @@ func (cmd *PlayerListCmd) Run(ctx *Context) error {
 // Run 读取训练报告输入并保存。
 func (cmd *ReportWriteCmd) Run(ctx *Context) error {
 	var input reportWriteInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"report", "write"}); err != nil {
 		return err
 	}
 	report, err := ctx.ReportService.WriteReport(input.Name, input.Date, input.Content, input.Reflection)
@@ -350,7 +359,7 @@ func (cmd *ReportReadCmd) Run(ctx *Context) error {
 // Run 读取完整比赛输入并一次性写入。
 func (cmd *GameWriteCmd) Run(ctx *Context) error {
 	var input gameWriteInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "write"}); err != nil {
 		return err
 	}
 	battingSide, err := parseBattingSide(input.BattingSide)
@@ -385,7 +394,7 @@ func (cmd *GameWriteCmd) Run(ctx *Context) error {
 // Run 创建一场可继续补充数据的比赛。
 func (cmd *GameCreateCmd) Run(ctx *Context) error {
 	var input gameCreateInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "create"}); err != nil {
 		return err
 	}
 	battingSide, err := parseBattingSide(input.BattingSide)
@@ -402,7 +411,7 @@ func (cmd *GameCreateCmd) Run(ctx *Context) error {
 // Run 读取并追加一条比赛阵容记录。
 func (cmd *GameLineupAddCmd) Run(ctx *Context) error {
 	var input gameLineupAddInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "lineup", "add"}); err != nil {
 		return err
 	}
 	team, err := parseTeam(input.Team)
@@ -423,7 +432,7 @@ func (cmd *GameLineupAddCmd) Run(ctx *Context) error {
 // Run 读取并批量追加比赛事件。
 func (cmd *GameEventWriteCmd) Run(ctx *Context) error {
 	var input gameEventWriteInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "event", "write"}); err != nil {
 		return err
 	}
 	events, err := eventsFromJSON(input.Events)
@@ -440,7 +449,7 @@ func (cmd *GameEventWriteCmd) Run(ctx *Context) error {
 // Run 设置比赛最终比分。
 func (cmd *GameScoreSetCmd) Run(ctx *Context) error {
 	var input gameScoreSetInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "score", "set"}); err != nil {
 		return err
 	}
 	if err := ctx.GameService.SetGameScore(input.GameID, input.OwnScore, input.OpponentScore); err != nil {
@@ -452,7 +461,7 @@ func (cmd *GameScoreSetCmd) Run(ctx *Context) error {
 // Run 触发指定比赛的单场分析生成。
 func (cmd *GameAnalysisGenerateCmd) Run(ctx *Context) error {
 	var input gameAnalysisGenerateInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "analysis", "generate"}); err != nil {
 		return err
 	}
 	id, err := ctx.GameService.GenerateGameAnalysis(input.GameID)
@@ -500,7 +509,7 @@ func (cmd *GameListCmd) Run(ctx *Context) error {
 
 // Run 校验生成阵容但不写入数据库。
 func (cmd *LineupValidateCmd) Run(ctx *Context) error {
-	draft, err := readLineupDraft(ctx, cmd.Input)
+	draft, err := readLineupDraft(ctx, cmd.Input, []string{"lineup", "validate"})
 	if err != nil {
 		return err
 	}
@@ -513,7 +522,7 @@ func (cmd *LineupValidateCmd) Run(ctx *Context) error {
 
 // Run 校验并保存生成阵容。
 func (cmd *LineupWriteCmd) Run(ctx *Context) error {
-	draft, err := readLineupDraft(ctx, cmd.Input)
+	draft, err := readLineupDraft(ctx, cmd.Input, []string{"lineup", "write"})
 	if err != nil {
 		return err
 	}
@@ -588,7 +597,7 @@ func (cmd *LineupRejectCmd) Run(ctx *Context) error {
 // Run 读取并写入训练推荐。
 func (cmd *DrillWriteCmd) Run(ctx *Context) error {
 	var input drillWriteInput
-	if err := readJSONInput(ctx, cmd.Input, &input); err != nil {
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"drill", "recommend", "write"}); err != nil {
 		return err
 	}
 	drillType, err := parseDrillType(input.Type)
@@ -772,12 +781,16 @@ func dataFromTOMLTags(value any) (any, error) {
 }
 
 // readJSONInput 读取、校验必填字段并解码命令 JSON 输入。
-func readJSONInput(ctx *Context, path string, value any) error {
+func readJSONInput(ctx *Context, path string, value any, command []string) error {
 	raw, err := readInput(ctx, path)
 	if err != nil {
 		return err
 	}
-	if err := requireJSONFields(raw, requiredFields(value)); err != nil {
+	required, err := requiredFieldsForCommand(command)
+	if err != nil {
+		return err
+	}
+	if err := requireJSONFields(raw, required); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -790,34 +803,6 @@ func readJSONInput(ctx *Context, path string, value any) error {
 		return errors.New("invalid --input: expected a single JSON value")
 	}
 	return nil
-}
-
-// requiredFields 从输入结构的 JSON 标签收集必填字段名。
-func requiredFields(value any) []string {
-	switch value.(type) {
-	case *playerAddInput:
-		return []string{"name", "number", "bat", "throw", "positions"}
-	case *reportWriteInput:
-		return []string{"name", "date", "content", "reflection"}
-	case *gameWriteInput:
-		return []string{"date", "opponent", "batting_side", "own_score", "opponent_score", "raw"}
-	case *gameCreateInput:
-		return []string{"date", "opponent", "batting_side", "raw"}
-	case *gameLineupAddInput:
-		return []string{"game_id", "team", "player"}
-	case *gameEventWriteInput:
-		return []string{"game_id", "events"}
-	case *gameScoreSetInput:
-		return []string{"game_id", "own_score", "opponent_score"}
-	case *gameAnalysisGenerateInput:
-		return []string{"game_id"}
-	case *generatedLineupInput:
-		return []string{"schema_version", "game_id", "starters"}
-	case *drillWriteInput:
-		return []string{"name", "url", "reason", "type", "summary"}
-	default:
-		return nil
-	}
 }
 
 // requireJSONFields 在解码前确认 JSON 对象包含全部必填字段。
@@ -1059,9 +1044,9 @@ type eventJSON struct {
 }
 
 // readLineupDraft 严格读取生成阵容并转换位置和投手角色枚举。
-func readLineupDraft(ctx *Context, path string) (lineup.Draft, error) {
+func readLineupDraft(ctx *Context, path string, command []string) (lineup.Draft, error) {
 	var input generatedLineupInput
-	if err := readJSONInput(ctx, path, &input); err != nil {
+	if err := readJSONInput(ctx, path, &input, command); err != nil {
 		return lineup.Draft{}, err
 	}
 	draft := lineup.Draft{

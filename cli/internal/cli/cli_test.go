@@ -442,6 +442,54 @@ func TestHelpTextDescribesJSONInput(t *testing.T) {
 	}
 }
 
+func TestContractReturnsEveryStructuredInputCommandWithoutDatabase(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "must-not-be-created.db")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := RunWithIO(
+		[]string{"--db", dbPath, "--format", "json", "contract"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	if err != nil {
+		t.Fatalf("contract command failed: %v\n%s", err, stderr.String())
+	}
+
+	var envelope struct {
+		Ok   bool `json:"ok"`
+		Data struct {
+			Commands []CommandInputContract `json:"commands"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode contract output: %v\n%s", err, stdout.String())
+	}
+	if !envelope.Ok || len(envelope.Data.Commands) != 11 {
+		t.Fatalf("unexpected contracts: %#v", envelope)
+	}
+	for _, contract := range envelope.Data.Commands {
+		if !contract.Input.Required || contract.Input.Type != "object" {
+			t.Fatalf("invalid contract for %v: %#v", contract.Command, contract.Input)
+		}
+		for _, field := range contract.Input.RequiredFields {
+			if _, ok := contract.Input.Properties[field]; !ok {
+				t.Fatalf("%v required field %q has no property contract", contract.Command, field)
+			}
+		}
+	}
+	if _, ok := inputContractFor([]string{"player", "add"}); !ok {
+		t.Fatal("player add contract is missing")
+	}
+	matches, err := filepath.Glob(dbPath)
+	if err != nil {
+		t.Fatalf("check database path: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("contract command created database: %s", dbPath)
+	}
+}
+
 func TestGeneratedLineupWorkflow(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "bastion.db")
 	positions := []string{"pitcher", "catcher", "first_base", "second_base", "third_base", "shortstop", "outfield", "outfield", "outfield"}

@@ -29,6 +29,9 @@ rt-install:
 rt-check:
     cd {{runtime_dir}} && pnpm typecheck
 
+rt-test: build
+    cd {{runtime_dir}} && pnpm test
+
 rt-dev: build
     cd {{runtime_dir}} && pnpm dev
 

@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/main.ts",
+    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/skill.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -14,7 +15,8 @@
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.2",
-    "@earendil-works/pi-tui": "0.80.2"
+    "@earendil-works/pi-tui": "0.80.2",
+    "typebox": "1.1.38"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

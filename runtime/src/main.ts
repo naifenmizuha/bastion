@@ -14,6 +14,7 @@ import {
   getMarkdownTheme,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { createBastionCliExtension } from "./bastion-cli/extension.ts";
 
 const bastionHeaderExtension: ExtensionFactory = (pi) => {
   pi.on("session_start", (_event, context) => {
@@ -38,10 +39,35 @@ const bastionHeaderExtension: ExtensionFactory = (pi) => {
 };
 
 export async function main(): Promise<void> {
+  // main.ts 位于 runtime/src/，向上两级就是 Bastion 仓库根目录。
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const skillPath = join(
+    repoRoot,
+    "runtime",
+    "skills",
+    "manage-bastion-team",
+  );
+  const databasePath = resolve(
+    repoRoot,
+    process.env.BASTION_DB_PATH ?? "bastion.db",
+  );
+  const timeoutValue = process.env.BASTION_CLI_TIMEOUT_MS ?? "30000";
+  const timeoutMs = Number(timeoutValue);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(
+      `BASTION_CLI_TIMEOUT_MS must be a positive integer, received ${JSON.stringify(timeoutValue)}`,
+    );
+  }
+
   // Bastion 使用独立的配置根目录，不读取或写入 Pi 默认的 ~/.pi/agent。
   // 同时设置 SDK 官方环境变量，覆盖仍通过全局路径助手取目录的 TUI 功能。
   const agentDir = join(homedir(), ".bastion", "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
+  const bastionCliExtension = createBastionCliExtension({
+    executablePath: join(repoRoot, "out", "bastion"),
+    databasePath,
+    timeoutMs,
+  });
 
   // AgentSessionRuntime 在 /new、/resume、/fork 等操作后需要重建会话。
   // 因此这里提供工厂函数，而不是只创建一次 AgentSession。
@@ -57,7 +83,8 @@ export async function main(): Promise<void> {
       cwd,
       agentDir,
       resourceLoaderOptions: {
-        extensionFactories: [bastionHeaderExtension],
+        additionalSkillPaths: [skillPath],
+        extensionFactories: [bastionHeaderExtension, bastionCliExtension],
       },
     });
 
@@ -68,15 +95,17 @@ export async function main(): Promise<void> {
         services,
         sessionManager,
         sessionStartEvent,
+        // 球队管理会话只暴露权威只读文件能力和结构化领域 CLI。
+        // 不注册 bash/edit/write，避免绕过 bastion_cli 的命令策略和审批。
+        tools: ["read", "bastion_cli"],
       })),
       services,
       diagnostics: services.diagnostics,
     };
   };
 
-  // main.ts 位于 runtime/src/，向上两级就是 Bastion 仓库根目录。
-  // 将根目录作为 cwd，确保 Pi 在整个项目范围内工作，而不是局限于 runtime/。
-  const cwd = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  // 将根目录作为 cwd，确保 Skill references 使用稳定的项目路径。
+  const cwd = repoRoot;
 
   // SessionManager.create() 使用持久化会话机制；其默认目录也会通过上面的
   // PI_CODING_AGENT_DIR 落到 ~/.bastion/agent/sessions。
