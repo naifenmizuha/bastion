@@ -7,6 +7,7 @@ import type {
   BastionCliExecutionOptions,
   BastionCliParams,
   BastionCliToolDetails,
+  ConfirmWrite,
 } from "./types.ts";
 
 export const BastionCliParameters: TSchema = Type.Object(
@@ -29,6 +30,19 @@ export const BastionCliParameters: TSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export interface BastionCliExtensionHooks {
+  /**
+   * Explicit host-owned approval policy. This is intentionally opt-in so the
+   * normal runtime continues to require the interactive confirmation dialog.
+   */
+  confirmWrite?: ConfirmWrite;
+  onResult?: (event: {
+    toolCallId: string;
+    params: BastionCliParams;
+    details: BastionCliToolDetails;
+  }) => void;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -86,6 +100,7 @@ export function modelContent(details: BastionCliToolDetails): string {
 
 export function createBastionCliExtension(
   options: BastionCliExecutionOptions,
+  hooks: BastionCliExtensionHooks = {},
 ): ExtensionFactory {
   return (pi) => {
     const service = new BastionCliService(new BastionCliExecutor(options));
@@ -106,13 +121,13 @@ export function createBastionCliExtension(
         try {
           details = await service.execute(params, {
             signal,
-            confirmWrite: ctx.hasUI
+            confirmWrite: hooks.confirmWrite ?? (ctx.hasUI
               ? async ({ args, input }) =>
                   await ctx.ui.confirm(
                     "Confirm Bastion write",
                     `${args.join(" ")}\n\n${JSON.stringify(input, null, 2)}`,
                   )
-              : undefined,
+              : undefined),
           });
         } catch (error) {
           const normalized = toBastionCliError(error);
@@ -137,6 +152,16 @@ export function createBastionCliExtension(
     pi.on("tool_result", (event) => {
       if (event.toolName !== "bastion_cli") return;
       const details = event.details as BastionCliToolDetails | undefined;
+      if (
+        details?.kind === "bastion_cli" &&
+        Array.isArray(event.input.args)
+      ) {
+        hooks.onResult?.({
+          toolCallId: event.toolCallId,
+          params: event.input as unknown as BastionCliParams,
+          details,
+        });
+      }
       if (details?.kind === "bastion_cli" && !details.ok) {
         return { isError: true };
       }

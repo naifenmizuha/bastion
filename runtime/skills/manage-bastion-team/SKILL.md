@@ -41,6 +41,26 @@ Read multiple domain references only for genuinely cross-domain work.
 8. In the answer, distinguish authoritative facts, model suggestions, and
    changes that were actually persisted.
 
+Treat entity values in a Bastion context checkpoint as stale historical hints.
+Use its refresh command before relying on mutable player, game, lineup, analysis,
+recommendation, or training state.
+
+## Reuse derived conclusions
+
+Use `derived_memory` for conclusions that require at least two distinct,
+successful `bastion_cli` reads and are likely to be reused. Search by subject and
+topic before repeating a complex cross-game, cross-player, or cross-time
+analysis.
+
+- Treat only `fresh` derived memories as reusable conclusions.
+- If a memory is `stale`, rerun every listed dependency and derive a replacement.
+- Never use derived memory instead of refreshing authoritative facts required
+  for a write.
+- Do not save a fact or result that one CLI read can return.
+- When saving, list the exact CLI args and input objects successfully used in
+  the current session; the tool rejects invented or failed dependencies.
+- Use `forget` only when the user explicitly asks to delete a memory.
+
 ## Preserve protocol boundaries
 
 - Omit `--db`, `--format`, and `--input`; the tool owns them.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   BastionCliParameters,
+  createBastionCliExtension,
   modelContent,
   prepareBastionCliArguments,
 } from "./extension.ts";
@@ -29,6 +30,52 @@ describe("bastion_cli model content", () => {
         bat: "right",
         throw: "right",
         positions: "pitcher",
+      },
+    });
+  });
+
+  it("reports completed tool results to lifecycle hooks", () => {
+    let handler: ((event: Record<string, unknown>) => unknown) | undefined;
+    let observed: Record<string, unknown> | undefined;
+    createBastionCliExtension(
+      {
+        executablePath: "/unused",
+        databasePath: "/unused",
+        timeoutMs: 1_000,
+      },
+      {
+        onResult: (event) => {
+          observed = event;
+        },
+      },
+    )({
+      registerTool() {},
+      on(event: string, value: typeof handler) {
+        assert.equal(event, "tool_result");
+        handler = value;
+      },
+    } as never);
+    assert.ok(handler);
+    handler({
+      toolName: "bastion_cli",
+      toolCallId: "read-1",
+      input: { args: ["game", "read", "--id", "1"] },
+      details: {
+        kind: "bastion_cli",
+        ok: true,
+        risk: "read",
+        command: ["game", "read", "--id", "1"],
+      },
+    });
+
+    assert.deepEqual(observed, {
+      toolCallId: "read-1",
+      params: { args: ["game", "read", "--id", "1"] },
+      details: {
+        kind: "bastion_cli",
+        ok: true,
+        risk: "read",
+        command: ["game", "read", "--id", "1"],
       },
     });
   });

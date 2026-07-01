@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/main.ts",
-    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/skill.test.ts",
+    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
+    "scenario-test": "node --import tsx src/scenario/runner.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -14,6 +15,7 @@
   },
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
+    "@earendil-works/pi-ai": "0.80.2",
     "@earendil-works/pi-coding-agent": "0.80.2",
     "@earendil-works/pi-tui": "0.80.2",
     "typebox": "1.1.38"
