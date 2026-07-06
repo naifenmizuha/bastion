@@ -136,4 +136,131 @@ describe("bastion_cli model content", () => {
       },
     });
   });
+
+  it("keeps verification evidence compact in model-visible content", () => {
+    const fullReadback = {
+      ok: true as const,
+      data: {
+        game: { id: 1, own_score: 2, opponent_score: 1 },
+        events: [{ description: "large sensitive event payload" }],
+        lineups: [{ player: "张三" }],
+      },
+    };
+    const details = {
+      kind: "bastion_cli" as const,
+      ok: true,
+      command: ["game", "score", "set"],
+      risk: "write" as const,
+      result: {
+        envelope: {
+          ok: true as const,
+          data: { game_id: 1, own_score: 2, opponent_score: 1 },
+        },
+        exitCode: 0,
+        stderr: "",
+      },
+      verification: [
+        {
+          args: ["game", "read", "--id", "1"],
+          expected: { own_score: 2, opponent_score: 1 },
+          matched: true,
+          envelope: fullReadback,
+          exitCode: 0,
+          stderr: "",
+        },
+      ],
+    };
+
+    const content = JSON.parse(modelContent(details)) as {
+      cli: unknown;
+      verification: Array<Record<string, unknown>>;
+    };
+    assert.deepEqual(content.cli, details.result.envelope);
+    assert.deepEqual(content.verification, [
+      {
+        command: ["game", "read", "--id", "1"],
+        ok: true,
+        matched: true,
+        expected: { own_score: 2, opponent_score: 1 },
+      },
+    ]);
+    assert.doesNotMatch(
+      JSON.stringify(content.verification),
+      /large sensitive event payload|lineups|result/,
+    );
+    assert.deepEqual(details.verification[0]?.envelope, fullReadback);
+  });
+
+  it("preserves compact mismatch evidence and uncertainty errors", () => {
+    const content = JSON.parse(
+      modelContent({
+        kind: "bastion_cli",
+        ok: false,
+        command: ["game", "score", "set"],
+        risk: "write",
+        result: {
+          envelope: {
+            ok: true,
+            data: { game_id: 1, own_score: 2, opponent_score: 1 },
+          },
+          exitCode: 0,
+          stderr: "",
+        },
+        verification: [
+          {
+            args: ["game", "read", "--id", "1"],
+            expected: { own_score: 2, opponent_score: 1 },
+            matched: false,
+            envelope: {
+              ok: true,
+              data: {
+                game: { id: 1, own_score: 0, opponent_score: 0 },
+                events: [{ description: "must not reach the model" }],
+              },
+            },
+            exitCode: 0,
+            stderr: "",
+          },
+        ],
+        error: {
+          code: "WRITE_VERIFICATION_FAILED",
+          message:
+            "The write returned success, but authoritative read-back verification failed; the write may have taken effect",
+        },
+      }),
+    ) as Record<string, unknown>;
+
+    assert.deepEqual(content.verification, [
+      {
+        command: ["game", "read", "--id", "1"],
+        ok: true,
+        matched: false,
+        expected: { own_score: 2, opponent_score: 1 },
+      },
+    ]);
+    assert.deepEqual(content.error, {
+      code: "WRITE_VERIFICATION_FAILED",
+      message:
+        "The write returned success, but authoritative read-back verification failed; the write may have taken effect",
+    });
+    assert.doesNotMatch(JSON.stringify(content), /must not reach the model/);
+  });
+
+  it("exposes cancelled approval without CLI payload noise", () => {
+    const content = JSON.parse(
+      modelContent({
+        kind: "bastion_cli",
+        ok: false,
+        command: ["report", "write"],
+        risk: "write",
+        approved: false,
+        error: {
+          code: "USER_CANCELLED",
+          message: "The user cancelled the Bastion write",
+        },
+      }),
+    ) as Record<string, unknown>;
+    assert.equal(content.approved, false);
+    assert.equal((content.error as { code: string }).code, "USER_CANCELLED");
+  });
 });

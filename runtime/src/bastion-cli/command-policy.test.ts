@@ -15,7 +15,7 @@ function validParamsFor(spec: (typeof commandSpecs)[number]) {
 
 describe("command policy", () => {
   it("registers and accepts every current CLI command", () => {
-    assert.equal(commandSpecs.length, 28);
+    assert.equal(commandSpecs.length, 29);
     for (const spec of commandSpecs) {
       const parsed = parseCommand(validParamsFor(spec));
       assert.equal(parsed.spec, spec);

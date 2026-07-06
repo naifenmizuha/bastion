@@ -4,5 +4,8 @@
 /cli/bastion.db
 /runtime/node_modules
 /runtime/coverage
+/runtime/eval-results
+/eval-results
+/.pnpm-store
 /prd
 /out

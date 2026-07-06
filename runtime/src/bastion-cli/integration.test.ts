@@ -163,22 +163,22 @@ describe("bastion_cli integration", () => {
     assert.equal(approvedDrill.ok, true);
     assert.equal(approvedDrill.verification?.length, 2);
 
-    await assert.rejects(
-      service.execute(
-        {
-          args: ["player", "add"],
-          input: {
-            name: "李四",
-            number: 2,
-            bat: "left",
-            throw: "right",
-            positions: "outfield",
-          },
+    const cancelled = await service.execute(
+      {
+        args: ["player", "add"],
+        input: {
+          name: "李四",
+          number: 2,
+          bat: "left",
+          throw: "right",
+          positions: "outfield",
         },
-        { confirmWrite: async () => false },
-      ),
-      /cancelled/,
+      },
+      { confirmWrite: async () => false },
     );
+    assert.equal(cancelled.ok, false);
+    assert.equal(cancelled.approved, false);
+    assert.equal(cancelled.error?.code, "USER_CANCELLED");
     const roster = await service.execute({ args: ["player", "list"] });
     assert.equal(
       JSON.stringify(roster.result?.envelope).includes("李四"),

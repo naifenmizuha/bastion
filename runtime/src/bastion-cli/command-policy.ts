@@ -36,6 +36,7 @@ export const commandSpecs: readonly CommandSpec[] = [
   command(["game", "create"], { input: "required", risk: "write" }),
   command(["game", "lineup", "add"], { input: "required", risk: "write" }),
   command(["game", "event", "write"], { input: "required", risk: "write" }),
+  command(["game", "event", "validate"], { input: "required" }),
   command(["game", "score", "set"], { input: "required", risk: "write" }),
   command(["game", "analysis", "generate"], {
     input: "required",

@@ -83,21 +83,10 @@ Score:
 }
 ```
 
-- `batting_side`, `half`: `top`, `bottom`
-- `team`: `own`, `opponent`
-- `event_kind`: `plate_result`, `runner_movement`, `fielding_credit`
-- Plate results: `single`, `double`, `triple`, `homerun`, `walk`,
-  `hit_by_pitch`, `strikeout`, `groundout`, `flyout`, `reached_on_error`,
-  `fielders_choice`, `sacrifice`, `other`
-- Runner results: `advance`, `run_scored`, `out`
-- Runner reasons: `batted_ball`, `stolen_base`, `caught_stealing`,
-  `wild_pitch`, `passed_ball`, `balk`, `pickoff`, `error`,
-  `fielders_choice`, `other`
-- Fielding results: `putout`, `assist`, `error`, `double_play`,
-  `passed_ball`, `outfield_assist`, `other`
-- Starting positions: `P`, `C`, `1B`, `2B`, `3B`, `SS`, `LF`, `CF`, `RF`
-
-Do not infer unreported events.
+Use `top|bottom`, `own|opponent`, and event kinds `plate_result`,
+`runner_movement`, or `fielding_credit`. Preflight returns allowed values for
+invalid enums. Never infer unreported facts; ask once for all reported issues
+and do not submit a partial batch.
 
 ## Analysis
 

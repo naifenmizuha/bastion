@@ -91,7 +91,12 @@ type GameLineupAddCmd struct {
 }
 
 type GameEventCmd struct {
-	Write GameEventWriteCmd `cmd:"" help:"Write game fact events."`
+	Validate GameEventValidateCmd `cmd:"" help:"Validate game fact events without saving."`
+	Write    GameEventWriteCmd    `cmd:"" help:"Write game fact events."`
+}
+
+type GameEventValidateCmd struct {
+	Input string `required:"" help:"Path to game event JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type GameEventWriteCmd struct {
@@ -444,6 +449,42 @@ func (cmd *GameEventWriteCmd) Run(ctx *Context) error {
 		return err
 	}
 	return writeCommandResult(ctx, map[string]any{"resource": "game_events", "game_id": input.GameID, "count": count}, fmt.Sprintf("game events saved: %d\n", count))
+}
+
+// Run validates a complete batch of game events without persisting it.
+func (cmd *GameEventValidateCmd) Run(ctx *Context) error {
+	var input gameEventWriteInput
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "event", "validate"}); err != nil {
+		return err
+	}
+	issues := validateEventRecords(input.GameID, input.Events)
+	if len(issues) == 0 {
+		events, err := eventsFromJSON(input.Events)
+		if err != nil {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: -1,
+				Field:      "events",
+				Code:       errorCode(err),
+				Expected:   err.Error(),
+			})
+		} else if err := ctx.GameService.ValidateGameEvents(input.GameID, events); err != nil {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: -1,
+				Field:      "events",
+				Code:       errorCode(err),
+				Expected:   err.Error(),
+			})
+		}
+	}
+	return writeCommandResult(
+		ctx,
+		map[string]any{
+			"valid":   len(issues) == 0,
+			"game_id": input.GameID,
+			"issues":  issues,
+		},
+		fmt.Sprintf("game events valid: %t\n", len(issues) == 0),
+	)
 }
 
 // Run 设置比赛最终比分。
@@ -1041,6 +1082,102 @@ type eventJSON struct {
 	Earned        *bool   `json:"earned"`
 	Value         int     `json:"value"`
 	Description   string  `json:"description"`
+}
+
+type eventValidationIssue struct {
+	EventIndex int    `json:"eventIndex" toml:"event_index"`
+	Field      string `json:"field" toml:"field"`
+	Code       string `json:"code" toml:"code"`
+	Expected   string `json:"expected" toml:"expected"`
+}
+
+func validateEventRecords(gameID int64, records []eventJSON) []eventValidationIssue {
+	issues := make([]eventValidationIssue, 0)
+	if gameID <= 0 {
+		issues = append(issues, eventValidationIssue{
+			EventIndex: -1, Field: "game_id", Code: "invalid_value", Expected: "positive integer",
+		})
+	}
+	if len(records) == 0 {
+		issues = append(issues, eventValidationIssue{
+			EventIndex: -1, Field: "events", Code: "missing_required", Expected: "non-empty array",
+		})
+		return issues
+	}
+	for index, record := range records {
+		kind, kindErr := parseEventKind(record.EventKind)
+		if kindErr != nil {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "event_kind", Code: "invalid_value",
+				Expected: enumLabels(eventKindOptions),
+			})
+			continue
+		}
+		if _, err := parseEventResult(kind, record.Result); err != nil {
+			var expected string
+			switch kind {
+			case game.EventKindPlateResult:
+				expected = enumLabels(plateResultOptions)
+			case game.EventKindRunnerMovement:
+				expected = enumLabels(runnerResultOptions)
+			case game.EventKindFieldingCredit:
+				expected = enumLabels(fieldingResultOptions)
+			}
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "result", Code: "invalid_value", Expected: expected,
+			})
+		}
+		if strings.TrimSpace(record.Player) == "" {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "player", Code: "missing_required", Expected: "non-empty string",
+			})
+		}
+		if _, err := parseTeam(record.Team); err != nil {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "team", Code: "invalid_value", Expected: enumLabels(teamOptions),
+			})
+		}
+		if _, err := parseHalf(record.Half); err != nil {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "half", Code: "invalid_value", Expected: enumLabels(halfOptions),
+			})
+		}
+		if record.Inning < 1 {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "inning", Code: "invalid_value", Expected: "integer >= 1",
+			})
+		}
+		if record.Sequence <= 0 {
+			issues = append(issues, eventValidationIssue{
+				EventIndex: index, Field: "sequence", Code: "invalid_value", Expected: "positive integer",
+			})
+		}
+		switch kind {
+		case game.EventKindPlateResult:
+			if strings.TrimSpace(record.RelatedPlayer) == "" {
+				issues = append(issues, eventValidationIssue{
+					EventIndex: index, Field: "related_player", Code: "missing_required", Expected: "reported opposing player",
+				})
+			}
+			if strings.TrimSpace(record.PitchSequence) == "" {
+				issues = append(issues, eventValidationIssue{
+					EventIndex: index, Field: "pitch_sequence", Code: "missing_required", Expected: "reported pitch sequence",
+				})
+			}
+		case game.EventKindRunnerMovement:
+			if record.BaseFrom == nil {
+				issues = append(issues, eventValidationIssue{
+					EventIndex: index, Field: "base_from", Code: "missing_required", Expected: "integer 0-3",
+				})
+			}
+			if record.Result != "out" && record.BaseTo == nil {
+				issues = append(issues, eventValidationIssue{
+					EventIndex: index, Field: "base_to", Code: "missing_required", Expected: "integer 1-4",
+				})
+			}
+		}
+	}
+	return issues
 }
 
 // readLineupDraft 严格读取生成阵容并转换位置和投手角色枚举。

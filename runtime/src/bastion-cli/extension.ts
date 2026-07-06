@@ -72,6 +72,7 @@ export function modelContent(details: BastionCliToolDetails): string {
     ok: details.ok,
     command: details.command,
     risk: details.risk,
+    ...(details.approved !== undefined ? { approved: details.approved } : {}),
     ...(details.result ? { cli: details.result.envelope } : {}),
     ...(details.verification
       ? {
@@ -79,7 +80,7 @@ export function modelContent(details: BastionCliToolDetails): string {
             command: item.args,
             ok: item.envelope.ok,
             matched: item.matched,
-            result: item.envelope,
+            expected: item.expected,
           })),
         }
       : {}),

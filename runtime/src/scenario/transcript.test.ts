@@ -6,10 +6,10 @@ import { renderTranscript } from "./transcript.ts";
 describe("runtime scenario fixture", () => {
   it("keeps the four fixed user turns in the intended order", () => {
     assert.equal(SCENARIO_PROMPTS.length, 4);
-    assert.match(SCENARIO_PROMPTS[0], /新增/);
-    assert.match(SCENARIO_PROMPTS[1], /安排一场比赛/);
-    assert.match(SCENARIO_PROMPTS[2], /一次性录入完成/);
-    assert.match(SCENARIO_PROMPTS[3], /表现分析/);
+    assert.match(SCENARIO_PROMPTS[0], /名单/);
+    assert.match(SCENARIO_PROMPTS[1], /海港队/);
+    assert.match(SCENARIO_PROMPTS[2], /比赛过程/);
+    assert.match(SCENARIO_PROMPTS[3], /林晨/);
   });
 
   it("renders only user and assistant text", () => {

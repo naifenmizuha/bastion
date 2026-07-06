@@ -54,4 +54,4 @@ Read the player first. Resolve relative dates to a concrete `YYYY-MM-DD`.
 ```
 
 All four fields are required. After confirmation, the tool verifies the write
-with `report read`.
+with `report read`; do not repeat that read when verification matched.

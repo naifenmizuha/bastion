@@ -79,18 +79,29 @@ func (s *Service) AddGameLineup(gameID int64, team Team, player string, battingO
 
 // WriteGameEvents 校验并批量追加指定比赛的事实事件。
 func (s *Service) WriteGameEvents(gameID int64, events []GameEvent) (int, error) {
+	if err := s.ValidateGameEvents(gameID, events); err != nil {
+		return 0, err
+	}
+	return s.repo.AddGameEvents(gameID, events)
+}
+
+// ValidateGameEvents validates a complete event batch without persisting it.
+func (s *Service) ValidateGameEvents(gameID int64, events []GameEvent) error {
 	if gameID <= 0 {
-		return 0, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
+		return fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
 	}
 	if len(events) == 0 {
-		return 0, errors.New("--events-json cannot be empty")
+		return errors.New("--events-json cannot be empty")
+	}
+	if _, err := s.repo.GetGame(gameID); err != nil {
+		return err
 	}
 	for i := range events {
 		if err := prepareGameEvent(&events[i], gameID); err != nil {
-			return 0, fmt.Errorf("invalid event %d: %w", i+1, err)
+			return fmt.Errorf("invalid event %d: %w", i+1, err)
 		}
 	}
-	return s.repo.AddGameEvents(gameID, events)
+	return nil
 }
 
 // SetGameScore 设置最终比分，并由仓库将比赛标记为完赛。

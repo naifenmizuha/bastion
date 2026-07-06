@@ -19,7 +19,9 @@ lineup reject --id ID
 4. Inspect `data.valid`, errors, and warnings. `ok:true` does not imply the
    candidate itself is valid.
 5. Call `lineup write` only when the user wants to save the candidate.
-6. Call `lineup accept` or `lineup reject` only for an explicit user decision.
+6. For an explicit decision such as “直接采用”“接受” or “生效”, call
+   `lineup accept` before claiming the lineup is active; use `lineup reject`
+   for explicit rejection.
 
 ## Candidate input
 

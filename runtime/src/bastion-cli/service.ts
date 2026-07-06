@@ -61,6 +61,42 @@ export class BastionCliService {
     }
     let approved: boolean | undefined;
 
+    if (command.spec.path.join(" ") === "game event write") {
+      const preflight = await this.executor.run(
+        ["game", "event", "validate"],
+        params.input,
+        options.signal,
+      );
+      const data =
+        preflight.envelope.ok &&
+        typeof preflight.envelope.data === "object" &&
+        preflight.envelope.data !== null &&
+        !Array.isArray(preflight.envelope.data)
+          ? preflight.envelope.data as Record<string, unknown>
+          : undefined;
+      if (!preflight.envelope.ok || data?.valid !== true) {
+        return {
+          kind: "bastion_cli",
+          ok: false,
+          command: command.args,
+          risk: command.spec.risk,
+          error: preflight.envelope.ok
+            ? {
+                code: "INVALID_INPUT",
+                message: "Game events require missing or corrected facts before approval",
+                details: { issues: Array.isArray(data?.issues) ? data.issues : [] },
+              }
+            : {
+                code: preflight.envelope.error.code,
+                message: preflight.envelope.error.message,
+                ...(preflight.envelope.error.details !== undefined
+                  ? { details: preflight.envelope.error.details }
+                  : {}),
+              },
+        };
+      }
+    }
+
     if (command.spec.risk === "write") {
       if (!options.confirmWrite) {
         throw new BastionCliError(
@@ -73,10 +109,17 @@ export class BastionCliService {
         input: params.input,
       });
       if (!approved) {
-        throw new BastionCliError(
-          "USER_CANCELLED",
-          "The user cancelled the Bastion write",
-        );
+        return {
+          kind: "bastion_cli",
+          ok: false,
+          command: command.args,
+          risk: command.spec.risk,
+          approved: false,
+          error: {
+            code: "USER_CANCELLED",
+            message: "The user cancelled the Bastion write",
+          },
+        };
       }
     }
 

@@ -96,23 +96,71 @@ describe("BastionCliService", () => {
       }),
       /interactive confirmation/,
     );
-    await assert.rejects(
-      service.execute(
-        {
-          args: ["player", "add"],
-          input: {
-            name: "张三",
-            number: 1,
-            bat: "right",
-            throw: "right",
-            positions: "pitcher",
-          },
+    const cancelled = await service.execute(
+      {
+        args: ["player", "add"],
+        input: {
+          name: "张三",
+          number: 1,
+          bat: "right",
+          throw: "right",
+          positions: "pitcher",
         },
-        { confirmWrite: async () => false },
-      ),
-      /cancelled/,
+      },
+      { confirmWrite: async () => false },
     );
+    assert.equal(cancelled.ok, false);
+    assert.equal(cancelled.approved, false);
+    assert.equal(cancelled.error?.code, "USER_CANCELLED");
     assert.equal(calls, 0);
+  });
+
+  it("preflights game events before approval and returns compact issues", async () => {
+    let confirmations = 0;
+    let calls = 0;
+    const runner: BastionCliRunner = {
+      async run(args) {
+        calls += 1;
+        assert.deepEqual(args, ["game", "event", "validate"]);
+        return success({
+          valid: false,
+          issues: [
+            {
+              eventIndex: 0,
+              field: "pitch_sequence",
+              code: "missing_required",
+              expected: "reported pitch sequence",
+            },
+          ],
+        });
+      },
+    };
+    const details = await new BastionCliService(runner).execute(
+      {
+        args: ["game", "event", "write"],
+        input: { game_id: 1, events: [{}] },
+      },
+      {
+        confirmWrite: async () => {
+          confirmations += 1;
+          return true;
+        },
+      },
+    );
+    assert.equal(details.ok, false);
+    assert.equal(details.error?.code, "INVALID_INPUT");
+    assert.deepEqual(details.error?.details, {
+      issues: [
+        {
+          eventIndex: 0,
+          field: "pitch_sequence",
+          code: "missing_required",
+          expected: "reported pitch sequence",
+        },
+      ],
+    });
+    assert.equal(calls, 1);
+    assert.equal(confirmations, 0);
   });
 
   it("does not confirm derived analysis and verifies it", async () => {

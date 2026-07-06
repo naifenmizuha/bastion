@@ -31,8 +31,9 @@ Review statuses: `pending`, `approved`, `rejected`.
 }
 ```
 
-All fields are required. `name` is the recommender. Submission creates a
-pending recommendation and requires confirmation.
+All fields are required. `name` is the registered player associated with the
+training, not the submitting coach. Submission creates a pending recommendation
+and requires confirmation.
 
 ## Review
 
@@ -42,4 +43,5 @@ provided by the user; never invent reviewer identity. Approval requires
 and TUI confirmation.
 
 Approved recommendations become available through `drill training`. Rejected
-recommendations do not.
+recommendations do not. A successful approval already verifies
+`drill training read`; do not repeat that read.

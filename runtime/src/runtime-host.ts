@@ -4,10 +4,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Markdown } from "@earendil-works/pi-tui";
 import {
+  AuthStorage,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
   type ExtensionFactory,
+  ModelRegistry,
   SessionManager,
+  SettingsManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -44,6 +47,8 @@ const bastionHeaderExtension: ExtensionFactory = (pi) => {
 
 export interface BastionRuntimeHostOptions {
   databasePath?: string;
+  agentDir?: string;
+  configAgentDir?: string;
   confirmWrite?: ConfirmWrite;
 }
 
@@ -61,6 +66,7 @@ export async function createBastionRuntimeHost(
   options: BastionRuntimeHostOptions = {},
 ): Promise<BastionRuntimeHost> {
   const repoRoot = repositoryRoot();
+  const defaultAgentDir = join(homedir(), ".bastion", "agent");
   const skillPath = join(repoRoot, "runtime", "skills", "manage-bastion-team");
   const databasePath =
     options.databasePath ??
@@ -73,9 +79,16 @@ export async function createBastionRuntimeHost(
     );
   }
 
-  const agentDir = join(homedir(), ".bastion", "agent");
+  const agentDir = options.agentDir ?? defaultAgentDir;
+  const configAgentDir = options.configAgentDir ?? defaultAgentDir;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   mkdirSync(agentDir, { recursive: true });
+  const authStorage = AuthStorage.create(join(configAgentDir, "auth.json"));
+  const settingsManager = SettingsManager.create(repoRoot, configAgentDir);
+  const modelRegistry = ModelRegistry.create(
+    authStorage,
+    join(configAgentDir, "models.json"),
+  );
 
   const cliOptions = {
     executablePath: join(repoRoot, "out", "bastion"),
@@ -118,6 +131,9 @@ export async function createBastionRuntimeHost(
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
+      authStorage,
+      settingsManager,
+      modelRegistry,
       resourceLoaderOptions: {
         additionalSkillPaths: [skillPath],
         extensionFactories: [

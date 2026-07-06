@@ -89,6 +89,15 @@ var commandInputContracts = []CommandInputContract{
 		map[string]any{"game_id": 1, "team": "own", "player": "张三", "batting_order": 1, "starting_position": "P"},
 	),
 	objectContract(
+		[]string{"game", "event", "validate"},
+		[]string{"game_id", "events"},
+		map[string]map[string]any{
+			"game_id": positiveIntegerProperty("Game id"),
+			"events":  arrayProperty("Ordered game fact events", "object"),
+		},
+		map[string]any{"game_id": 1, "events": []any{}},
+	),
+	objectContract(
 		[]string{"game", "event", "write"},
 		[]string{"game_id", "events"},
 		map[string]map[string]any{
@@ -129,7 +138,7 @@ var commandInputContracts = []CommandInputContract{
 		[]string{"drill", "recommend", "write"},
 		[]string{"name", "url", "reason", "type", "summary"},
 		map[string]map[string]any{
-			"name":    stringProperty("Recommending player name"),
+			"name":    stringProperty("Registered player associated with the training"),
 			"url":     formattedStringProperty("Drill video URL", "uri"),
 			"reason":  stringProperty("Recommendation reason"),
 			"type":    enumStringProperty("Drill type", []string{"pitching", "catching", "hitting", "strength", "baserunning", "infield", "outfield"}),

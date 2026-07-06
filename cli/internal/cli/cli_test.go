@@ -193,6 +193,42 @@ func TestGameCreateAppendScoreFlow(t *testing.T) {
 	}
 }
 
+func TestGameEventValidateAggregatesIssuesWithoutPersisting(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+	if out, err := runCommandInput(
+		dbPath,
+		`{"date":"2026-06-23","opponent":"测试队","batting_side":"top","raw":"预校验"}`,
+		"game", "create", "--input", "-",
+	); err != nil {
+		t.Fatalf("game create failed: %v\n%s", err, out)
+	}
+
+	out, err := runCommandInput(
+		dbPath,
+		`{"game_id":1,"events":[{"inning":1,"half":"top","sequence":1,"event_kind":"plate_result","player":"张三","team":"own","result":"single"},{"inning":1,"half":"top","sequence":2,"event_kind":"runner_movement","player":"张三","team":"own","result":"advance"}]}`,
+		"game", "event", "validate", "--input", "-",
+	)
+	if err != nil {
+		t.Fatalf("event validate failed: %v\n%s", err, out)
+	}
+	data := assertJSONOK(t, out)
+	if data["valid"] != false {
+		t.Fatalf("expected invalid result: %#v", data)
+	}
+	issues, ok := data["issues"].([]any)
+	if !ok || len(issues) != 4 {
+		t.Fatalf("expected four aggregated issues: %#v", data["issues"])
+	}
+
+	out, err = runCommand(dbPath, "game", "read", "--id", "1")
+	if err != nil {
+		t.Fatalf("game read failed: %v\n%s", err, out)
+	}
+	if events, ok := assertJSONOK(t, out)["events"].([]any); !ok || len(events) != 0 {
+		t.Fatalf("validation persisted events: %s", out)
+	}
+}
+
 func TestGameAnalysisGenerateReadAndList(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "bastion.db")
 	if out, err := runCommandInput(dbPath, completeGameInput("2026-06-24", "海港队", sampleEvents()),
@@ -465,7 +501,7 @@ func TestContractReturnsEveryStructuredInputCommandWithoutDatabase(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode contract output: %v\n%s", err, stdout.String())
 	}
-	if !envelope.Ok || len(envelope.Data.Commands) != 11 {
+	if !envelope.Ok || len(envelope.Data.Commands) != 12 {
 		t.Fatalf("unexpected contracts: %#v", envelope)
 	}
 	for _, contract := range envelope.Data.Commands {

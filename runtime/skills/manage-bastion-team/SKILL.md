@@ -41,6 +41,9 @@ Read multiple domain references only for genuinely cross-domain work.
 8. In the answer, distinguish authoritative facts, model suggestions, and
    changes that were actually persisted.
 
+For hard character limits, count visible Unicode and omit headings, tables,
+emoji, and count commentary.
+
 Treat entity values in a Bastion context checkpoint as stale historical hints.
 Use its refresh command before relying on mutable player, game, lineup, analysis,
 recommendation, or training state.
