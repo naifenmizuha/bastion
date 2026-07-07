@@ -26,6 +26,28 @@ type ObjectInputContract struct {
 
 var commandInputContracts = []CommandInputContract{
 	objectContract(
+		[]string{"batch", "read"},
+		[]string{"operations"},
+		map[string]map[string]any{
+			"operations": batchOperationsProperty("Read-only Bastion operations"),
+		},
+		map[string]any{"operations": []any{
+			map[string]any{"args": []string{"player", "read", "--name", "张三"}},
+			map[string]any{"args": []string{"report", "read", "--name", "张三", "--date", "2026-06-30"}},
+		}},
+	),
+	objectContract(
+		[]string{"batch", "write"},
+		[]string{"operations"},
+		map[string]map[string]any{
+			"operations": batchOperationsProperty("Ordered Bastion operations; may include writes"),
+		},
+		map[string]any{"operations": []any{
+			map[string]any{"args": []string{"player", "add"}, "input": map[string]any{"name": "张三", "number": 18, "bat": "right", "throw": "right", "positions": "pitcher,shortstop"}},
+			map[string]any{"args": []string{"report", "write"}, "input": map[string]any{"name": "张三", "date": "2026-06-30", "content": "打击训练 100 球", "reflection": "外角球仍需加强"}},
+		}},
+	),
+	objectContract(
 		[]string{"player", "add"},
 		[]string{"name", "number", "bat", "throw", "positions"},
 		map[string]map[string]any{
@@ -197,6 +219,31 @@ func rangedIntegerProperty(description string, minimum, maximum int) map[string]
 
 func arrayProperty(description, itemType string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": itemType}, "description": description}
+}
+
+func batchOperationsProperty(description string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": description,
+		"minItems":    1,
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"requiredFields":       []string{"args"},
+			"properties": map[string]any{
+				"args": map[string]any{
+					"type":        "array",
+					"minItems":    1,
+					"items":       map[string]any{"type": "string"},
+					"description": "Bastion subcommand and flags as separate tokens; omit --db, --format, and --input",
+				},
+				"input": map[string]any{
+					"type":        "object",
+					"description": "Structured input object for commands that require it",
+				},
+			},
+		},
+	}
 }
 
 func lineupProperties() map[string]map[string]any {

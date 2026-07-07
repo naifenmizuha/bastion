@@ -163,6 +163,48 @@ describe("BastionCliService", () => {
     assert.equal(confirmations, 0);
   });
 
+  it("preflights game events inside batch writes before approval", async () => {
+    let confirmations = 0;
+    let calls = 0;
+    const runner: BastionCliRunner = {
+      async run(args) {
+        calls += 1;
+        assert.deepEqual(args, ["game", "event", "validate"]);
+        return success({
+          valid: false,
+          issues: [{ eventIndex: 0, field: "player", code: "missing_required" }],
+        });
+      },
+    };
+    const details = await new BastionCliService(runner).execute(
+      {
+        args: ["batch", "write"],
+        input: {
+          operations: [
+            {
+              args: ["game", "event", "write"],
+              input: { game_id: 1, events: [{}] },
+            },
+          ],
+        },
+      },
+      {
+        confirmWrite: async () => {
+          confirmations += 1;
+          return true;
+        },
+      },
+    );
+    assert.equal(details.ok, false);
+    assert.equal(details.error?.code, "INVALID_INPUT");
+    assert.deepEqual(details.error?.details, {
+      index: 0,
+      issues: [{ eventIndex: 0, field: "player", code: "missing_required" }],
+    });
+    assert.equal(calls, 1);
+    assert.equal(confirmations, 0);
+  });
+
   it("does not confirm derived analysis and verifies it", async () => {
     const calls: string[][] = [];
     const runner: BastionCliRunner = {
@@ -214,5 +256,75 @@ describe("BastionCliService", () => {
     assert.equal(details.ok, false);
     assert.equal(details.error?.code, "WRITE_VERIFICATION_FAILED");
     assert.equal(details.verification?.[0]?.matched, false);
+  });
+
+  it("verifies every write inside a successful batch write", async () => {
+    const calls: string[][] = [];
+    const runner: BastionCliRunner = {
+      async run(args) {
+        calls.push(args);
+        if (calls.length === 1) {
+          return success({
+            resource: "batch",
+            mode: "write",
+            count: 2,
+            operations: [
+              {
+                index: 0,
+                args: ["player", "add"],
+                ok: true,
+                data: { resource: "player", name: "张三" },
+              },
+              {
+                index: 1,
+                args: ["report", "write"],
+                ok: true,
+                data: { resource: "report", name: "张三", date: "2026-07-01" },
+              },
+            ],
+          });
+        }
+        if (calls.length === 2) return success({ player: { name: "张三" } });
+        return success({ report: { name: "张三", date: "2026-07-01" } });
+      },
+    };
+
+    const details = await new BastionCliService(runner).execute(
+      {
+        args: ["batch", "write"],
+        input: {
+          operations: [
+            {
+              args: ["player", "add"],
+              input: {
+                name: "张三",
+                number: 18,
+                bat: "right",
+                throw: "right",
+                positions: "pitcher",
+              },
+            },
+            {
+              args: ["report", "write"],
+              input: {
+                name: "张三",
+                date: "2026-07-01",
+                content: "打击训练",
+                reflection: "稳定",
+              },
+            },
+          ],
+        },
+      },
+      { confirmWrite: async () => true },
+    );
+
+    assert.equal(details.ok, true);
+    assert.deepEqual(calls, [
+      ["batch", "write"],
+      ["player", "read", "--name", "张三"],
+      ["report", "read", "--name", "张三", "--date", "2026-07-01"],
+    ]);
+    assert.equal(details.verification?.length, 2);
   });
 });

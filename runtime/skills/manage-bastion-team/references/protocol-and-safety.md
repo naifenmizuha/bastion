@@ -25,6 +25,49 @@ Commands with structured input use:
 Never include `--db`, `--format`, or `--input`. The tool injects the configured
 database, forces JSON, and sends `input` over stdin.
 
+## Batch operations
+
+Use `batch read` when the request needs several independent authoritative reads.
+Every operation must be read-only or validation-only. Use `batch write` when the
+user approved a single ordered change that naturally contains multiple
+registered commands.
+
+```json
+{
+  "args": ["batch", "read"],
+  "input": {
+    "operations": [
+      {"args": ["player", "read", "--name", "张三"]},
+      {"args": ["report", "read", "--name", "张三", "--date", "2026-06-30"]}
+    ]
+  }
+}
+```
+
+```json
+{
+  "args": ["batch", "write"],
+  "input": {
+    "operations": [
+      {
+        "args": ["player", "add"],
+        "input": {"name": "张三", "number": 18, "bat": "right", "throw": "right", "positions": "pitcher"}
+      },
+      {
+        "args": ["report", "write"],
+        "input": {"name": "张三", "date": "2026-06-30", "content": "打击训练", "reflection": "节奏稳定"}
+      }
+    ]
+  }
+}
+```
+
+Batch operations still use registered command args only. Do not nest `batch`
+inside `batch`. The tool asks for one confirmation for `batch write` and then
+verifies each successful inner write with its normal read-back policy. If a
+batch write fails, treat earlier successful operations as already persisted
+unless a later authoritative read proves otherwise.
+
 ## Result
 
 The tool returns:

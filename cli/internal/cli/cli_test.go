@@ -430,12 +430,68 @@ func TestPersonAnalysisRead(t *testing.T) {
 	}
 }
 
+func TestBatchWriteAndRead(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+
+	out, err := runCommandInput(dbPath, `{"operations":[
+		{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher"}},
+		{"args":["report","write"],"input":{"name":"张三","date":"2026-07-01","content":"打击训练","reflection":"节奏稳定"}}
+	]}`, "batch", "write", "--input", "-")
+	if err != nil {
+		t.Fatalf("batch write failed: %v\n%s", err, out)
+	}
+	data := assertJSONOK(t, out)
+	if data["resource"] != "batch" || data["mode"] != "write" || data["count"] != float64(2) {
+		t.Fatalf("unexpected batch write data: %#v", data)
+	}
+
+	out, err = runCommandInput(dbPath, `{"operations":[
+		{"args":["player","read","--name","张三"]},
+		{"args":["report","read","--name","张三","--date","2026-07-01"]}
+	]}`, "batch", "read", "--input", "-")
+	if err != nil {
+		t.Fatalf("batch read failed: %v\n%s", err, out)
+	}
+	operations, ok := assertJSONOK(t, out)["operations"].([]any)
+	if !ok || len(operations) != 2 {
+		t.Fatalf("unexpected batch read operations: %s", out)
+	}
+	first, ok := operations[0].(map[string]any)
+	if !ok || first["ok"] != true {
+		t.Fatalf("unexpected first batch operation: %#v", operations[0])
+	}
+	firstData, ok := first["data"].(map[string]any)
+	if !ok || nestedMap(t, firstData, "player")["name"] != "张三" {
+		t.Fatalf("unexpected player batch data: %#v", first)
+	}
+}
+
+func TestBatchReadRejectsWriteOperation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "bastion.db")
+
+	out, err := runCommandInput(dbPath, `{"operations":[
+		{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher"}}
+	]}`, "batch", "read", "--input", "-")
+	if err == nil {
+		t.Fatal("expected batch read to reject write operation")
+	}
+	assertJSONErrorCode(t, out, "invalid_command")
+	if !strings.Contains(out, `"index":0`) {
+		t.Fatalf("expected operation index in error details: %s", out)
+	}
+}
+
 func TestHelpTextDescribesJSONInput(t *testing.T) {
 	tests := []struct {
 		name      string
 		args      []string
 		wantParts []string
 	}{
+		{
+			name:      "batch read",
+			args:      []string{"batch", "read", "-h"},
+			wantParts: []string{"--input=PATH", "Path to batch JSON input"},
+		},
 		{
 			name:      "player add",
 			args:      []string{"player", "add", "-h"},
@@ -501,7 +557,7 @@ func TestContractReturnsEveryStructuredInputCommandWithoutDatabase(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode contract output: %v\n%s", err, stdout.String())
 	}
-	if !envelope.Ok || len(envelope.Data.Commands) != 12 {
+	if !envelope.Ok || len(envelope.Data.Commands) != 14 {
 		t.Fatalf("unexpected contracts: %#v", envelope)
 	}
 	for _, contract := range envelope.Data.Commands {

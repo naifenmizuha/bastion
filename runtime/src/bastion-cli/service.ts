@@ -13,6 +13,28 @@ import {
   containsExpected,
 } from "./verification.ts";
 
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function batchOperations(input: unknown): Record<string, unknown>[] {
+  const operations = asObject(input)?.operations;
+  if (!Array.isArray(operations)) return [];
+  return operations.flatMap((operation) =>
+    asObject(operation) ? [operation] : [],
+  );
+}
+
+function operationArgs(operation: Record<string, unknown>): string[] | undefined {
+  const args = operation.args;
+  if (!Array.isArray(args) || args.some((item) => typeof item !== "string")) {
+    return undefined;
+  }
+  return args as string[];
+}
+
 export interface BastionCliRunner {
   run(
     args: string[],
@@ -22,6 +44,11 @@ export interface BastionCliRunner {
   inputContract?(
     args: string[],
   ): Promise<CommandInputContract | undefined>;
+}
+
+interface GameEventPreflightInput {
+  index?: number;
+  input: unknown;
 }
 
 export class BastionCliService {
@@ -61,10 +88,22 @@ export class BastionCliService {
     }
     let approved: boolean | undefined;
 
-    if (command.spec.path.join(" ") === "game event write") {
+    const gameEventInputs: GameEventPreflightInput[] =
+      command.spec.path.join(" ") === "game event write"
+        ? [{ input: params.input }]
+        : command.spec.path.join(" ") === "batch write"
+          ? batchOperations(params.input).flatMap((operation, index) => {
+              const args = operationArgs(operation);
+              return args?.join(" ") === "game event write"
+                ? [{ index, input: operation.input }]
+                : [];
+            })
+          : [];
+
+    for (const gameEventInput of gameEventInputs) {
       const preflight = await this.executor.run(
         ["game", "event", "validate"],
-        params.input,
+        gameEventInput.input,
         options.signal,
       );
       const data =
@@ -84,14 +123,24 @@ export class BastionCliService {
             ? {
                 code: "INVALID_INPUT",
                 message: "Game events require missing or corrected facts before approval",
-                details: { issues: Array.isArray(data?.issues) ? data.issues : [] },
+                details: {
+                  ...(gameEventInput.index !== undefined
+                    ? { index: gameEventInput.index }
+                    : {}),
+                  issues: Array.isArray(data?.issues) ? data.issues : [],
+                },
               }
             : {
                 code: preflight.envelope.error.code,
                 message: preflight.envelope.error.message,
-                ...(preflight.envelope.error.details !== undefined
-                  ? { details: preflight.envelope.error.details }
-                  : {}),
+                details: {
+                  ...(gameEventInput.index !== undefined
+                    ? { index: gameEventInput.index }
+                    : {}),
+                  ...(preflight.envelope.error.details !== undefined
+                    ? { cause: preflight.envelope.error.details }
+                    : {}),
+                },
               },
         };
       }

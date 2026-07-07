@@ -3,6 +3,7 @@ import type {
   ParsedCommand,
   VerificationRequest,
 } from "./types.ts";
+import { parseCommand } from "./command-policy.ts";
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -33,6 +34,22 @@ function requiredPrimitive(
   return value;
 }
 
+function operationInputs(input: unknown): Record<string, unknown>[] {
+  const operations = asObject(input)?.operations;
+  if (!Array.isArray(operations)) return [];
+  return operations.flatMap((operation) =>
+    asObject(operation) ? [operation] : [],
+  );
+}
+
+function operationResults(data: unknown): Record<string, unknown>[] {
+  const operations = asObject(data)?.operations;
+  if (!Array.isArray(operations)) return [];
+  return operations.flatMap((operation) =>
+    asObject(operation) ? [operation] : [],
+  );
+}
+
 export function buildVerificationRequests(
   command: ParsedCommand,
   input: unknown,
@@ -45,6 +62,30 @@ export function buildVerificationRequests(
   const data = asObject(envelope.data);
 
   switch (key) {
+    case "batch write": {
+      const inputs = operationInputs(input);
+      return operationResults(data).flatMap((operation) => {
+        const index = primitive(operation, "index");
+        if (typeof index !== "number") return [];
+        const inputOperation = inputs[index];
+        const args = Array.isArray(inputOperation?.args)
+          ? inputOperation.args
+          : operation.args;
+        if (!Array.isArray(args) || args.some((item) => typeof item !== "string")) {
+          return [];
+        }
+        const nestedInput = inputOperation?.input;
+        const nestedCommand = parseCommand({
+          args: args as string[],
+          ...(nestedInput === undefined ? {} : { input: nestedInput }),
+        });
+        return buildVerificationRequests(
+          nestedCommand,
+          nestedInput,
+          { ok: true, data: operation.data },
+        );
+      });
+    }
     case "player add": {
       const name = requiredPrimitive(inputObject, "name");
       return [{ args: ["player", "read", "--name", String(name)], expected: { name } }];

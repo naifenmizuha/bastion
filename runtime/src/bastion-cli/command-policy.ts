@@ -25,6 +25,8 @@ function command(
 }
 
 export const commandSpecs: readonly CommandSpec[] = [
+  command(["batch", "read"], { input: "required" }),
+  command(["batch", "write"], { input: "required", risk: "write" }),
   command(["player", "add"], { input: "required", risk: "write" }),
   command(["player", "read"], { flags: { "--name": { required: true } } }),
   command(["player", "list"]),

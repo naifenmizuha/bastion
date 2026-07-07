@@ -14,11 +14,18 @@ game analysis generate
 game analysis read --game-id ID [--player NAME]
 game analysis list
 person analysis read --name NAME --from YYYY-MM-DD --to YYYY-MM-DD
+batch read
+batch write
 ```
 
 Use `game write` for an available complete record. Use `game create`, then
 `game lineup add`, `game event write`, and `game score set` when facts arrive
 incrementally.
+Use `batch read` for several known games or analyses. Use `batch write` for an
+ordered incremental update such as create game, add lineup records, write
+events, and set score after all payloads are known. Keep one game's event facts
+inside a single `game event write` operation; do not split individual events
+across batch operations.
 
 ## Game inputs
 

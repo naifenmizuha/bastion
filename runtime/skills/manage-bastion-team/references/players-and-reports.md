@@ -8,10 +8,17 @@ player read --name NAME
 player add
 report read --name NAME --date YYYY-MM-DD
 report write
+batch read
+batch write
 ```
 
 There is no `report list` command. State this limitation instead of inventing
 one or reading SQLite.
+
+Use `batch read` to fetch several known players or several known dated reports
+in one call. Use `batch write` for a user-approved set of player/report writes
+that should be applied in order, such as adding a player and immediately saving
+that player's first report.
 
 ## Add a player
 

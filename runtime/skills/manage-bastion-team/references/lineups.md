@@ -9,7 +9,14 @@ lineup read --id ID
 lineup list [--game-id ID] [--status validated|accepted|rejected|superseded]
 lineup accept --id ID
 lineup reject --id ID
+batch read
+batch write
 ```
+
+Use `batch read` to inspect several candidate lineups or a game plus its
+lineup candidates. Use `batch write` only for explicit ordered decisions, such
+as rejecting several candidate ids or saving and accepting a candidate after
+the user already approved both steps.
 
 ## Workflow
 

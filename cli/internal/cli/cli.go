@@ -24,6 +24,7 @@ import (
 type CLI struct {
 	DB       string      `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
 	Format   string      `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
+	Batch    BatchCmd    `cmd:"" help:"Run multiple registered commands from one JSON input."`
 	Player   PlayerCmd   `cmd:"" help:"Manage players."`
 	Report   ReportCmd   `cmd:"" help:"Manage training reports."`
 	Game     GameCmd     `cmd:"" help:"Manage games."`
@@ -31,6 +32,19 @@ type CLI struct {
 	Drill    DrillCmd    `cmd:"" help:"Manage drill recommendations."`
 	Person   PersonCmd   `cmd:"" help:"Manage person cross-period analysis."`
 	Contract ContractCmd `cmd:"" help:"Print machine-readable structured input contracts."`
+}
+
+type BatchCmd struct {
+	Read  BatchReadCmd  `cmd:"" help:"Run multiple read-only commands."`
+	Write BatchWriteCmd `cmd:"" help:"Run multiple commands, including writes."`
+}
+
+type BatchReadCmd struct {
+	Input string `required:"" help:"Path to batch JSON input, or - for stdin." placeholder:"PATH"`
+}
+
+type BatchWriteCmd struct {
+	Input string `required:"" help:"Path to batch JSON input, or - for stdin." placeholder:"PATH"`
 }
 
 type PlayerCmd struct {
@@ -239,6 +253,7 @@ type PersonAnalysisReadCmd struct {
 }
 
 type Context struct {
+	DB            string
 	PlayerService *player.Service
 	ReportService *report.Service
 	GameService   *game.Service
@@ -273,6 +288,7 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 
 	if ctx.Command() == "contract" {
 		return ctx.Run(&Context{
+			DB:     app.DB,
 			Out:    stdout,
 			In:     stdin,
 			Format: app.Format,
@@ -292,6 +308,7 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 	}
 
 	runErr := ctx.Run(&Context{
+		DB:            app.DB,
 		PlayerService: player.NewService(store),
 		ReportService: report.NewService(store),
 		GameService:   game.NewService(store),
@@ -306,6 +323,16 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 		writeError(stdout, app.Format, runErr)
 	}
 	return runErr
+}
+
+// Run executes a batch containing only read-only commands.
+func (cmd *BatchReadCmd) Run(ctx *Context) error {
+	return runBatch(ctx, cmd.Input, "read", []string{"batch", "read"})
+}
+
+// Run executes a batch that may include writes.
+func (cmd *BatchWriteCmd) Run(ctx *Context) error {
+	return runBatch(ctx, cmd.Input, "write", []string{"batch", "write"})
 }
 
 // Run 读取球员输入并调用球员创建服务。
@@ -773,6 +800,167 @@ func writeCommandResult(ctx *Context, data map[string]any, text string) error {
 	return writeJSONData(ctx.Out, data)
 }
 
+func runBatch(ctx *Context, inputPath string, mode string, command []string) error {
+	var input batchInput
+	if err := readJSONInput(ctx, inputPath, &input, command); err != nil {
+		return err
+	}
+	if len(input.Operations) == 0 {
+		return errors.New("missing required field \"operations\": expected non-empty array")
+	}
+
+	results := make([]batchOperationResult, 0, len(input.Operations))
+	for index, operation := range input.Operations {
+		risk, err := classifyBatchOperation(operation.Args)
+		if err != nil {
+			return batchOperationError{
+				Index:   index,
+				Args:    operation.Args,
+				Code:    "invalid_command",
+				Message: err.Error(),
+			}
+		}
+		if mode == "read" && risk != "read" {
+			return batchOperationError{
+				Index:   index,
+				Args:    operation.Args,
+				Code:    "invalid_command",
+				Message: fmt.Sprintf("batch read only accepts read-only commands; %q is %s", strings.Join(operation.Args, " "), risk),
+			}
+		}
+		envelope, err := runBatchOperation(ctx, operation)
+		if err != nil {
+			return batchOperationError{
+				Index:   index,
+				Args:    operation.Args,
+				Code:    "internal_error",
+				Message: err.Error(),
+			}
+		}
+		if !envelope.Ok {
+			code := "internal_error"
+			message := "operation failed"
+			var details any
+			if envelope.Error != nil {
+				code = envelope.Error.Code
+				message = envelope.Error.Message
+				details = envelope.Error.Details
+			}
+			return batchOperationError{
+				Index:   index,
+				Args:    operation.Args,
+				Code:    code,
+				Message: message,
+				Details: details,
+			}
+		}
+		results = append(results, batchOperationResult{
+			Index: index,
+			Args:  append([]string(nil), operation.Args...),
+			Ok:    true,
+			Data:  envelope.Data,
+		})
+	}
+
+	return writeCommandResult(
+		ctx,
+		map[string]any{
+			"resource":   "batch",
+			"mode":       mode,
+			"count":      len(results),
+			"operations": results,
+		},
+		fmt.Sprintf("batch %s completed: %d\n", mode, len(results)),
+	)
+}
+
+func runBatchOperation(ctx *Context, operation batchOperationInput) (jsonEnvelope, error) {
+	args := append([]string{"--db", ctx.DB, "--format", "json"}, operation.Args...)
+	var input io.Reader = strings.NewReader("")
+	if len(operation.Input) > 0 {
+		args = append(args, "--input", "-")
+		input = bytes.NewReader(operation.Input)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := RunWithIO(args, input, &stdout, &stderr)
+	var envelope jsonEnvelope
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &envelope); decodeErr != nil {
+		if err != nil {
+			return jsonEnvelope{}, fmt.Errorf("%w; stderr: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		return jsonEnvelope{}, fmt.Errorf("decode operation output: %w", decodeErr)
+	}
+	return envelope, nil
+}
+
+type batchCommandRisk struct {
+	Path []string
+	Risk string
+}
+
+var batchCommandRisks = []batchCommandRisk{
+	{[]string{"game", "analysis", "generate"}, "compute_write"},
+	{[]string{"drill", "recommend", "write"}, "write"},
+	{[]string{"drill", "review", "approve"}, "write"},
+	{[]string{"drill", "review", "reject"}, "write"},
+	{[]string{"game", "event", "validate"}, "read"},
+	{[]string{"game", "event", "write"}, "write"},
+	{[]string{"game", "lineup", "add"}, "write"},
+	{[]string{"game", "score", "set"}, "write"},
+	{[]string{"game", "analysis", "read"}, "read"},
+	{[]string{"game", "analysis", "list"}, "read"},
+	{[]string{"person", "analysis", "read"}, "read"},
+	{[]string{"drill", "recommend", "list"}, "read"},
+	{[]string{"drill", "training", "list"}, "read"},
+	{[]string{"drill", "training", "read"}, "read"},
+	{[]string{"player", "add"}, "write"},
+	{[]string{"player", "read"}, "read"},
+	{[]string{"player", "list"}, "read"},
+	{[]string{"report", "write"}, "write"},
+	{[]string{"report", "read"}, "read"},
+	{[]string{"game", "write"}, "write"},
+	{[]string{"game", "create"}, "write"},
+	{[]string{"game", "read"}, "read"},
+	{[]string{"game", "list"}, "read"},
+	{[]string{"lineup", "validate"}, "read"},
+	{[]string{"lineup", "write"}, "write"},
+	{[]string{"lineup", "read"}, "read"},
+	{[]string{"lineup", "list"}, "read"},
+	{[]string{"lineup", "accept"}, "write"},
+	{[]string{"lineup", "reject"}, "write"},
+}
+
+func classifyBatchOperation(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", errors.New("operation args must contain a registered command")
+	}
+	for _, token := range args {
+		if token == "--db" || token == "--format" || token == "--input" {
+			return "", fmt.Errorf("operation args must not include %s", token)
+		}
+	}
+	if args[0] == "batch" {
+		return "", errors.New("batch operations cannot be nested")
+	}
+	for _, candidate := range batchCommandRisks {
+		if len(args) < len(candidate.Path) {
+			continue
+		}
+		matched := true
+		for index, token := range candidate.Path {
+			if args[index] != token {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return candidate.Risk, nil
+		}
+	}
+	return "", fmt.Errorf("operation command is not registered: %s", strings.Join(args, " "))
+}
+
 // writeTOML 将值编码为 TOML，编码失败时写出可读错误。
 func writeTOML(out io.Writer, value any) {
 	data, err := toml.Marshal(value)
@@ -792,11 +980,17 @@ func writeError(out io.Writer, format string, err error) {
 	if err == nil || format == "toml" || format == "text" {
 		return
 	}
+	var withDetails interface{ ErrorDetails() any }
+	details := any(nil)
+	if errors.As(err, &withDetails) {
+		details = withDetails.ErrorDetails()
+	}
 	_ = writeJSON(out, jsonEnvelope{
 		Ok: false,
 		Error: &jsonError{
 			Code:    errorCode(err),
 			Message: err.Error(),
+			Details: details,
 		},
 	})
 }
@@ -884,6 +1078,10 @@ func readInput(ctx *Context, path string) ([]byte, error) {
 
 // errorCode 将常见业务错误映射为稳定的机器可读错误码。
 func errorCode(err error) string {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
 	message := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(message, "missing required"):
@@ -912,6 +1110,7 @@ type jsonEnvelope struct {
 type jsonError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 type playerReadTOML struct {
@@ -975,6 +1174,48 @@ type reportWriteInput struct {
 	Date       string `json:"date"`
 	Content    string `json:"content"`
 	Reflection string `json:"reflection"`
+}
+
+type batchInput struct {
+	Operations []batchOperationInput `json:"operations"`
+}
+
+type batchOperationInput struct {
+	Args  []string        `json:"args"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+type batchOperationResult struct {
+	Index int      `json:"index"`
+	Args  []string `json:"args"`
+	Ok    bool     `json:"ok"`
+	Data  any      `json:"data,omitempty"`
+}
+
+type batchOperationError struct {
+	Index   int
+	Args    []string
+	Code    string
+	Message string
+	Details any
+}
+
+func (err batchOperationError) Error() string {
+	return fmt.Sprintf("batch operation %d failed: %s", err.Index, err.Message)
+}
+
+func (err batchOperationError) ErrorCode() string {
+	return err.Code
+}
+
+func (err batchOperationError) ErrorDetails() any {
+	return map[string]any{
+		"index":   err.Index,
+		"args":    err.Args,
+		"code":    err.Code,
+		"message": err.Message,
+		"details": err.Details,
+	}
 }
 
 type gameWriteInput struct {

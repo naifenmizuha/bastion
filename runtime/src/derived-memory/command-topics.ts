@@ -6,6 +6,7 @@ interface TopicRule {
 }
 
 const READ_TOPIC_RULES: readonly TopicRule[] = [
+  { prefix: ["batch"], topics: ["player", "report", "game", "game_analysis", "lineup", "drill"] },
   { prefix: ["game", "analysis"], topics: ["game", "game_analysis"] },
   { prefix: ["person", "analysis"], topics: ["player", "report", "game", "game_analysis"] },
   { prefix: ["game"], topics: ["game"] },
@@ -17,6 +18,7 @@ const READ_TOPIC_RULES: readonly TopicRule[] = [
 ];
 
 const WRITE_TOPIC_RULES: readonly TopicRule[] = [
+  { prefix: ["batch"], topics: ["player", "report", "game", "game_analysis", "lineup", "drill"] },
   { prefix: ["game", "analysis", "generate"], topics: ["game_analysis"] },
   { prefix: ["game", "lineup"], topics: ["game", "game_analysis", "lineup"] },
   { prefix: ["game", "event"], topics: ["game", "game_analysis"] },

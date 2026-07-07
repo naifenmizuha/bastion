@@ -9,12 +9,18 @@ drill review approve --recommendation-id ID --coach NAME --summary TEXT --note T
 drill review reject --recommendation-id ID --coach NAME --summary TEXT --reason TEXT
 drill training list [--name NAME] [--type TYPE]
 drill training read --recommendation-id ID
+batch read
+batch write
 ```
 
 Types: `pitching`, `catching`, `hitting`, `strength`, `baserunning`, `infield`,
 `outfield`.
 
 Review statuses: `pending`, `approved`, `rejected`.
+
+Use `batch read` to inspect several recommendations or approved trainings. Use
+`batch write` only when the user has made multiple explicit review decisions or
+asked to submit multiple recommendations at once.
 
 ## Submit a recommendation
 
