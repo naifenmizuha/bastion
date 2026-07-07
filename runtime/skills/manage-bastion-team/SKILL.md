@@ -5,9 +5,42 @@ description: Use Bastion's authoritative baseball CLI through the bastion_cli to
 
 # Manage Bastion Team
 
-Use `bastion_cli` as the only authority for persisted team facts. Do not invoke
-the executable through a shell, inspect SQLite directly, or invent unsupported
-commands.
+Use `bastion_cli` as the only authority for persisted team facts. Do not run the
+CLI through a shell, inspect SQLite, or invent unsupported commands.
+
+## CLI quick manual
+
+Call `bastion_cli` with `args` as separate command/flag tokens. Put structured
+payloads in `input`. Never include `--db`, `--format`, or `--input`; the tool
+owns those protocol details.
+
+Read:
+
+```json
+{"args":["player","read","--name","张三"]}
+```
+
+Structured write:
+
+```json
+{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}
+```
+
+Batch read:
+
+```json
+{"args":["batch","read"],"input":{"operations":[{"args":["player","read","--name","张三"]},{"args":["report","read","--name","张三","--date","2026-06-30"]}]}}
+```
+
+Batch write:
+
+```json
+{"args":["batch","write"],"input":{"operations":[{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher"}},{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}]}}
+```
+
+Treat only top-level `ok: true` as success. Writes request confirmation and
+return `verification`; do not repeat a verified read-back. If `ok: false`, use
+the error code to correct input, ask once for missing facts, or stop.
 
 ## Select references
 
@@ -17,58 +50,31 @@ Read only the references needed for the request:
 - Games, events, scores, or performance analysis: [games-and-analysis.md](references/games-and-analysis.md)
 - Candidate or official lineups: [lineups.md](references/lineups.md)
 - Drill recommendations, reviews, or approved training: [drills.md](references/drills.md)
-- Tool protocol, writes, failures, or uncertainty: [protocol-and-safety.md](references/protocol-and-safety.md)
+- Protocol, write safety, cancellation, or uncertainty: [protocol-and-safety.md](references/protocol-and-safety.md)
 
 Read multiple domain references only for genuinely cross-domain work.
 
-## Follow the workflow
+## Workflow
 
-1. Classify the request as read, validation/analysis, candidate creation, or
-   authoritative change.
-2. Resolve names, ids, dates, and current state with read commands. Never guess
-   an identifier or missing fact.
-3. Ask the user only when a missing value would materially change the action and
-   cannot be uniquely resolved through reads.
-4. Call `bastion_cli` with command and flags as separate `args` tokens. Put
-   structured command payloads in `input`.
-5. Treat only `ok: true` as CLI success. For lineup validation, also inspect
-   `data.valid`; a valid CLI response may describe an invalid lineup.
-6. Let the tool request confirmation for writes and perform read-back
-   verification. Never claim success while confirmation was cancelled or
-   verification failed.
-7. On a structured error, change the input, disambiguate with a read, ask the
-   user, or stop. Never retry the same validation error unchanged.
-8. In the answer, distinguish authoritative facts, model suggestions, and
-   changes that were actually persisted.
+1. Classify the task: read, validate/analyze, create candidate, or persist.
+2. Resolve names, ids, dates, and current state with reads. Never guess ids or
+   missing facts.
+3. Prefer `batch read` for several independent reads and `batch write` for one
+   user-approved ordered change that contains several commands.
+4. For complete game data, prefer `game write`; for incremental game data,
+   prefer `batch write`; after saving a game with analyzable events, run
+   `game analysis generate` then `game analysis read`.
+5. For lineups, `lineup write` only saves a candidate. If the user asks to
+   adopt, accept, or make it active, call `lineup accept` and say it was
+   accepted only after success.
+6. On `USER_CANCELLED`, stop immediately and state that nothing was saved by
+   that cancelled attempt. Do not retry.
+7. Keep final answers short when requested. Distinguish persisted facts,
+   validated candidates, and model suggestions.
 
-For hard character limits, count visible Unicode and omit headings, tables,
-emoji, and count commentary.
+## Derived memory
 
-Treat entity values in a Bastion context checkpoint as stale historical hints.
-Use its refresh command before relying on mutable player, game, lineup, analysis,
-recommendation, or training state.
-
-## Reuse derived conclusions
-
-Use `derived_memory` for conclusions that require at least two distinct,
-successful `bastion_cli` reads and are likely to be reused. Search by subject and
-topic before repeating a complex cross-game, cross-player, or cross-time
-analysis.
-
-- Treat only `fresh` derived memories as reusable conclusions.
-- If a memory is `stale`, rerun every listed dependency and derive a replacement.
-- Never use derived memory instead of refreshing authoritative facts required
-  for a write.
-- Do not save a fact or result that one CLI read can return.
-- When saving, list the exact CLI args and input objects successfully used in
-  the current session; the tool rejects invented or failed dependencies.
-- Use `forget` only when the user explicitly asks to delete a memory.
-
-## Preserve protocol boundaries
-
-- Omit `--db`, `--format`, and `--input`; the tool owns them.
-- Do not pass `input` to query-only commands.
-- Do not request TOML or text output.
-- Do not use a nearby command when the requested capability is unsupported.
-- Treat timeout or failed verification as an uncertain write state; report it
-  rather than replaying the write.
+Use `derived_memory` only for reusable conclusions derived from at least two
+distinct successful `bastion_cli` reads. Search before repeating complex
+cross-game, cross-player, or cross-time analysis. Never use derived memory
+instead of refreshing authoritative facts required for a write.

@@ -1,4 +1,10 @@
-# Players and training reports
+# Players and Training Reports
+
+## When to use
+
+Use this reference for roster queries, player creation, and dated self-training
+reports. There is no `report list`; state that limitation instead of inventing
+one or reading SQLite.
 
 ## Commands
 
@@ -12,53 +18,40 @@ batch read
 batch write
 ```
 
-There is no `report list` command. State this limitation instead of inventing
-one or reading SQLite.
-
-Use `batch read` to fetch several known players or several known dated reports
-in one call. Use `batch write` for a user-approved set of player/report writes
-that should be applied in order, such as adding a player and immediately saving
+Use `batch read` for several known players or dated reports. Use `batch write`
+only for one user-approved ordered set, such as adding a player and then saving
 that player's first report.
 
-## Add a player
+## Minimal workflow
 
-Confirm the name and uniform number are not already registered. `bat`, `throw`,
-and `positions` are comma-separated strings.
+1. For reads, call the exact read command when the name/date is known.
+2. For `player add`, first check existing roster when duplicate name or number
+   is possible.
+3. For `report write`, read the player first and resolve any relative date to
+   `YYYY-MM-DD`.
+4. After a successful write, trust the tool verification and do not repeat the
+   same read-back.
+5. If name/date is ambiguous, ask once instead of choosing a candidate.
+
+## Required input notes
+
+Player add:
 
 ```json
-{
-  "args": ["player", "add"],
-  "input": {
-    "name": "张三",
-    "number": 18,
-    "bat": "right",
-    "throw": "right",
-    "positions": "pitcher,shortstop"
-  }
-}
+{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher,shortstop"}}
 ```
 
+- Required: `name`, `number`, `bat`, `throw`, `positions`
 - Hand values: `left`, `right`
 - Position values: `pitcher`, `catcher`, `first_base`, `second_base`,
   `third_base`, `shortstop`, `outfield`
+- `bat`, `throw`, and `positions` are comma-separated strings.
 
-All five fields are required.
-
-## Write a training report
-
-Read the player first. Resolve relative dates to a concrete `YYYY-MM-DD`.
+Report write:
 
 ```json
-{
-  "args": ["report", "write"],
-  "input": {
-    "name": "张三",
-    "date": "2026-06-30",
-    "content": "打击训练 100 球",
-    "reflection": "外角球仍需加强"
-  }
-}
+{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练 100 球","reflection":"外角球仍需加强"}}
 ```
 
-All four fields are required. After confirmation, the tool verifies the write
-with `report read`; do not repeat that read when verification matched.
+- Required: `name`, `date`, `content`, `reflection`
+- `date` must be concrete `YYYY-MM-DD`.

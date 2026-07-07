@@ -1,4 +1,9 @@
-# Candidate and official lineups
+# Candidate and Official Lineups
+
+## When to use
+
+Use this reference for generated lineup candidates, validation, saving,
+acceptance into the official game lineup, and rejection.
 
 ## Commands
 
@@ -13,55 +18,37 @@ batch read
 batch write
 ```
 
-Use `batch read` to inspect several candidate lineups or a game plus its
-lineup candidates. Use `batch write` only for explicit ordered decisions, such
-as rejecting several candidate ids or saving and accepting a candidate after
-the user already approved both steps.
-
-## Workflow
+## Minimal workflow
 
 1. Read the target game and registered players.
-2. Read relevant person analysis when recent performance affects selection.
-3. Generate a candidate and call `lineup validate` first.
-4. Inspect `data.valid`, errors, and warnings. `ok:true` does not imply the
-   candidate itself is valid.
-5. Call `lineup write` only when the user wants to save the candidate.
-6. For an explicit decision such as “直接采用”“接受” or “生效”, call
-   `lineup accept` before claiming the lineup is active; use `lineup reject`
-   for explicit rejection.
+2. Read person analysis only when recent performance affects selection.
+3. Call `lineup validate` before saving. Inspect `cli.data.valid`; top-level
+   `ok:true` can still describe an invalid candidate.
+4. Call `lineup write` only when the user wants to save the candidate.
+5. `lineup write` only saves a candidate. If the user says adopt, accept,
+   use, active, or 生效, call `lineup accept --id ID`.
+6. Final answer must distinguish validated, saved, rejected, and accepted. Say
+   "accepted" only after `lineup accept` succeeds.
 
-## Candidate input
+Use `batch read` for several candidate lineups or a game plus candidates. Use
+`batch write` only for explicit ordered decisions, such as saving and accepting
+a candidate after the user approved both steps.
+
+## Required input notes
 
 ```json
-{
-  "args": ["lineup", "validate"],
-  "input": {
-    "schema_version": "1.0",
-    "game_id": 12,
-    "strategy": "优先守备稳定性",
-    "starters": [
-      {"player": "张三", "position": "P", "batting_order": 1}
-    ],
-    "bench": [
-      {"player": "李四", "suggested_role": "outfield_substitute"}
-    ],
-    "pitching_plan": [
-      {"player": "张三", "role": "starter", "planned_innings": 4}
-    ],
-    "reasoning": ["张三担任先发投手"]
-  }
-}
+{"args":["lineup","validate"],"input":{"schema_version":"1.0","game_id":12,"strategy":"优先守备稳定性","starters":[{"player":"张三","position":"P","batting_order":1}],"bench":[{"player":"李四","suggested_role":"outfield_substitute"}],"pitching_plan":[{"player":"张三","role":"starter","planned_innings":4}],"reasoning":["张三担任先发投手"]}}
 ```
 
-Use the same `input` with `args: ["lineup", "write"]` only when saving is
+Use the same `input` with `args:["lineup","write"]` only when saving is
 requested.
 
 - Required: `schema_version`, `game_id`, `starters`
 - Schema version: `1.0`
 - Positions: `P`, `C`, `1B`, `2B`, `3B`, `SS`, `LF`, `CF`, `RF`
-- Batting order: integers 1–9
+- Batting order: integers 1-9
 - Pitching roles: `starter`, `reliever`
 - Omit optional arrays or provide arrays; do not add unknown fields.
 
-Treat CLI validation as authoritative. Correct only the fields identified by
+Treat validation issues as authoritative. Correct only fields identified by
 structured issues, then validate again.

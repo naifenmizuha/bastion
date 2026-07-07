@@ -1,4 +1,9 @@
-# Drill recommendations and reviews
+# Drill Recommendations and Reviews
+
+## When to use
+
+Use this reference for drill recommendation submission, recommendation review,
+and approved drill training reads.
 
 ## Commands
 
@@ -13,41 +18,38 @@ batch read
 batch write
 ```
 
-Types: `pitching`, `catching`, `hitting`, `strength`, `baserunning`, `infield`,
-`outfield`.
+## Minimal workflow
 
-Review statuses: `pending`, `approved`, `rejected`.
+1. For recommendation submission, verify the associated player when needed.
+2. For review, read the pending recommendation first.
+3. Use the actual coach name and explicit user decision; never invent reviewer
+   identity or approval/rejection.
+4. After successful approval, trust verification for `drill training read`; do
+   not repeat it.
+5. Use `batch write` only when the user made multiple explicit review decisions
+   or asked to submit multiple recommendations at once.
 
-Use `batch read` to inspect several recommendations or approved trainings. Use
-`batch write` only when the user has made multiple explicit review decisions or
-asked to submit multiple recommendations at once.
+## Required input notes
 
-## Submit a recommendation
+Recommendation:
 
 ```json
-{
-  "args": ["drill", "recommend", "write"],
-  "input": {
-    "name": "张三",
-    "url": "https://example.com/drill/1",
-    "reason": "需要改善内野脚步",
-    "type": "infield",
-    "summary": "内野接球脚步与重心训练"
-  }
-}
+{"args":["drill","recommend","write"],"input":{"name":"张三","url":"https://example.com/drill/1","reason":"需要改善内野脚步","type":"infield","summary":"内野接球脚步与重心训练"}}
 ```
 
-All fields are required. `name` is the registered player associated with the
-training, not the submitting coach. Submission creates a pending recommendation
-and requires confirmation.
+- Required: `name`, `url`, `reason`, `type`, `summary`
+- `name` is the registered player associated with the training.
+- Types: `pitching`, `catching`, `hitting`, `strength`, `baserunning`,
+  `infield`, `outfield`
 
-## Review
+Review:
 
-Read the pending recommendation before reviewing it. Use the actual coach name
-provided by the user; never invent reviewer identity. Approval requires
-`--note`; rejection requires `--reason`. Both require an explicit user decision
-and TUI confirmation.
+```text
+drill review approve --recommendation-id ID --coach NAME --summary TEXT --note TEXT
+drill review reject --recommendation-id ID --coach NAME --summary TEXT --reason TEXT
+```
 
-Approved recommendations become available through `drill training`. Rejected
-recommendations do not. A successful approval already verifies
-`drill training read`; do not repeat that read.
+- Review statuses: `pending`, `approved`, `rejected`
+- Approval requires `--note`; rejection requires `--reason`.
+- Approved recommendations appear through `drill training`; rejected ones do
+  not.

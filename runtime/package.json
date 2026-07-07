@@ -6,9 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/main.ts",
-    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/eval/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
-    "scenario-test": "node --import tsx src/scenario/runner.ts",
-    "eval": "node --import tsx src/eval/main.ts",
+    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

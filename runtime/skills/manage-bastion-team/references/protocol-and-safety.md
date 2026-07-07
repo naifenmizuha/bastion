@@ -1,110 +1,84 @@
-# Tool protocol and safety
+# Protocol and Safety
 
-## Call shape
+## When to use
 
-```json
-{
-  "args": ["player", "read", "--name", "张三"]
-}
-```
+Use this reference when unsure about `bastion_cli` call shape, write approval,
+batch behavior, cancellation, failed verification, or error handling.
 
-Commands with structured input use:
+## Commands
 
-```json
-{
-  "args": ["report", "write"],
-  "input": {
-    "name": "张三",
-    "date": "2026-06-30",
-    "content": "打击训练 100 球",
-    "reflection": "外角球仍需加强"
-  }
-}
-```
+All registered domain commands use the same tool protocol. The tool owns the
+database, JSON mode, stdin transport, approval UI, and write verification.
 
-Never include `--db`, `--format`, or `--input`. The tool injects the configured
-database, forces JSON, and sends `input` over stdin.
+## Minimal workflow
 
-## Batch operations
+1. Pass only Bastion subcommand tokens in `args`.
+2. Pass JSON object payloads in `input` only for commands that require them.
+3. Never include `--db`, `--format`, or `--input`.
+4. Treat top-level `ok:true` as success and top-level `ok:false` as failure.
+5. For writes, trust successful `verification`; do not repeat the same read.
+6. On `USER_CANCELLED`, stop immediately. Do not retry the write or batch.
+7. On timeout, abort, or failed verification, report uncertainty and read
+   current state before any future overlapping write.
 
-Use `batch read` when the request needs several independent authoritative reads.
-Every operation must be read-only or validation-only. Use `batch write` when the
-user approved a single ordered change that naturally contains multiple
-registered commands.
+## Required input notes
+
+Read call:
 
 ```json
-{
-  "args": ["batch", "read"],
-  "input": {
-    "operations": [
-      {"args": ["player", "read", "--name", "张三"]},
-      {"args": ["report", "read", "--name", "张三", "--date", "2026-06-30"]}
-    ]
-  }
-}
+{"args":["player","read","--name","张三"]}
 ```
+
+Structured input:
 
 ```json
-{
-  "args": ["batch", "write"],
-  "input": {
-    "operations": [
-      {
-        "args": ["player", "add"],
-        "input": {"name": "张三", "number": 18, "bat": "right", "throw": "right", "positions": "pitcher"}
-      },
-      {
-        "args": ["report", "write"],
-        "input": {"name": "张三", "date": "2026-06-30", "content": "打击训练", "reflection": "节奏稳定"}
-      }
-    ]
-  }
-}
+{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}
 ```
 
-Batch operations still use registered command args only. Do not nest `batch`
-inside `batch`. The tool asks for one confirmation for `batch write` and then
-verifies each successful inner write with its normal read-back policy. If a
-batch write fails, treat earlier successful operations as already persisted
-unless a later authoritative read proves otherwise.
-
-## Result
-
-The tool returns:
+Batch read:
 
 ```json
-{
-  "ok": true,
-  "command": ["player", "read", "--name", "张三"],
-  "risk": "read",
-  "cli": {"ok": true, "data": {}}
-}
+{"args":["batch","read"],"input":{"operations":[{"args":["player","read","--name","张三"]},{"args":["report","read","--name","张三","--date","2026-06-30"]}]}}
 ```
 
-Writes also include `verification`. A write is complete only when the top-level
-`ok` is true. `WRITE_VERIFICATION_FAILED` means the write may have occurred but
-could not be confirmed.
+Batch write:
 
-## Confirmation
+```json
+{"args":["batch","write"],"input":{"operations":[{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher"}},{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}]}}
+```
 
-All business writes require an exact TUI confirmation except
-`game analysis generate`, which persists derived analysis automatically.
-Cancelling confirmation means no CLI process was started. Non-interactive
-sessions reject writes with `APPROVAL_REQUIRED`.
+- `batch read` accepts only read-only or validation commands.
+- `batch write` asks for one confirmation and verifies every successful inner
+  write with its normal read-back policy.
+- Do not nest `batch`.
+- If a batch write fails after earlier operations, assume earlier successful
+  operations may already be persisted until authoritative reads prove otherwise.
+
+## Result handling
+
+Tool result content is compact JSON:
+
+```json
+{"ok":true,"command":["player","read","--name","张三"],"risk":"read","cli":{"ok":true,"data":{}}}
+```
+
+Writes include `approved` and often `verification`. A write is complete only
+when top-level `ok` is true. `WRITE_VERIFICATION_FAILED` means the write may
+have occurred but was not confirmed.
 
 ## Error decisions
 
 | Code | Action |
 | --- | --- |
-| `INVALID_INPUT` | Read `error.details.contract`, supply the command's required `input`, and never copy example values as user facts |
-| `missing_required`, `unknown_field`, `parse_error`, `invalid_value` | Correct the payload using the relevant reference; do not retry unchanged |
-| `not_found` | Resolve the name/id through a list/read command or ask the user |
-| `conflict` | Read current state and explain the conflict; do not overwrite |
-| `USER_CANCELLED` | Stop and acknowledge cancellation |
-| `APPROVAL_REQUIRED` | Explain that an interactive confirmation is required |
-| `TIMEOUT`, `ABORTED` | Do not replay a write; read current state first |
-| `UNCLASSIFIED_COMMAND`, `INVALID_FLAGS` | Stop; the requested command is unsupported or the Skill is stale |
+| `INVALID_INPUT` | Read `error.details.contract` or `error.details.issues`; correct payload or ask for missing facts |
+| `missing_required`, `unknown_field`, `parse_error`, `invalid_value` | Correct once using the relevant reference; do not retry unchanged |
+| `not_found` | Resolve by list/read or ask the user |
+| `conflict` | Read current state and explain; do not overwrite |
+| `USER_CANCELLED` | Stop and say the cancelled write was not saved |
+| `APPROVAL_REQUIRED` | Explain that interactive confirmation is required |
+| `TIMEOUT`, `ABORTED` | Do not replay; read current state first |
+| `UNCLASSIFIED_COMMAND`, `INVALID_FLAGS` | Stop; command or flags are unsupported |
 | `CLI_NOT_AVAILABLE` | Ask the operator to build `out/bastion` |
-| `WRITE_VERIFICATION_FAILED` | Report an uncertain write and show the failed verification |
+| `WRITE_VERIFICATION_FAILED` | Report uncertain write and show verification evidence |
 
-Never query SQLite or fall back to a shell.
+Never query SQLite or fall back to shell commands.

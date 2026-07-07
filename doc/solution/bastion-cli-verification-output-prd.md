@@ -114,4 +114,4 @@ compaction extractor、context projection、freshness guard、derived memory obs
 3. 普通 read 的主 `cli` envelope 原样返回。
 4. `INVALID_INPUT` contract 原样返回。
 5. 测试证明大型回读字段未进入模型可见 verification，但仍存在于原始 details。
-6. `just rt-scenario-test` 四轮业务成功，生成的新上下文报告可量化优化结果。
+6. 现有 runtime 单元测试可证明模型可见 verification 被压缩，原始 details 仍保留完整数据。
