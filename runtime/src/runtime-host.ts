@@ -16,8 +16,22 @@ import {
   createAgentSessionServices,
   getMarkdownTheme,
 } from "@earendil-works/pi-coding-agent";
-import { createBastionCliExtension } from "./bastion-cli/extension.ts";
-import type { ConfirmWrite } from "./bastion-cli/types.ts";
+import { createBaseballRulesExtension } from "./baseball-rules/extension.ts";
+import {
+  createEnvEmbeddingProvider,
+  createUnavailableEmbeddingProvider,
+  embeddingOptionsFromEnv,
+} from "./baseball-rules/embedding.ts";
+import {
+  BASEBALL_RULE_INGEST_TOOL_NAME,
+  BASEBALL_RULE_QUERY_TOOL_NAME,
+} from "./baseball-rules/types.ts";
+import { ZvecBaseballRuleStore } from "./baseball-rules/zvec-store.ts";
+import { createTeamOpsExtension } from "./teamops/extension.ts";
+import {
+  TEAMOPS_TOOL_NAME,
+  type ConfirmWrite,
+} from "./teamops/types.ts";
 import { createBastionCompactionExtension } from "./compaction/extension.ts";
 import { createContextProjectionExtension } from "./context-projection/extension.ts";
 import { createDeveloperMode } from "./developer-mode/extension.ts";
@@ -71,11 +85,14 @@ export async function createBastionRuntimeHost(
   const databasePath =
     options.databasePath ??
     resolve(repoRoot, process.env.BASTION_DB_PATH ?? "bastion.db");
-  const timeoutValue = process.env.BASTION_CLI_TIMEOUT_MS ?? "30000";
+  const timeoutValue =
+    process.env.TEAMOPS_TIMEOUT_MS ??
+    process.env.BASTION_CLI_TIMEOUT_MS ??
+    "30000";
   const timeoutMs = Number(timeoutValue);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Error(
-      `BASTION_CLI_TIMEOUT_MS must be a positive integer, received ${JSON.stringify(timeoutValue)}`,
+      `TEAMOPS_TIMEOUT_MS must be a positive integer, received ${JSON.stringify(timeoutValue)}`,
     );
   }
 
@@ -91,7 +108,7 @@ export async function createBastionRuntimeHost(
   );
 
   const cliOptions = {
-    executablePath: join(repoRoot, "out", "bastion"),
+    executablePath: join(repoRoot, "out", "teamops"),
     databasePath,
     timeoutMs,
   };
@@ -100,6 +117,14 @@ export async function createBastionRuntimeHost(
     join(agentDir, "derived-memory.sqlite"),
   );
   derivedMemoryStore.markFreshMemoriesStaleOnStartup();
+  const embeddingOptions = embeddingOptionsFromEnv();
+  const baseballRuleEmbedder = embeddingOptions
+    ? createEnvEmbeddingProvider(embeddingOptions)
+    : createUnavailableEmbeddingProvider();
+  const baseballRuleStore = new ZvecBaseballRuleStore(
+    join(agentDir, "baseball-rules.zvec"),
+    baseballRuleEmbedder.dimension,
+  );
   const changeEvents = new LocalChangeEventBus();
 
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({
@@ -109,7 +134,7 @@ export async function createBastionRuntimeHost(
     sessionStartEvent,
   }) => {
     const observationLedger = new CliObservationLedger();
-    const bastionCliExtension = createBastionCliExtension(cliOptions, {
+    const teamOpsExtension = createTeamOpsExtension(cliOptions, {
       confirmWrite: options.confirmWrite,
       onResult: ({ toolCallId, params, details }) => {
         observationLedger.record(toolCallId, params, details, changeEvents);
@@ -119,6 +144,11 @@ export async function createBastionRuntimeHost(
       store: derivedMemoryStore,
       ledger: observationLedger,
       changeEvents,
+    });
+    const baseballRulesExtension = createBaseballRulesExtension({
+      store: baseballRuleStore,
+      embedder: baseballRuleEmbedder,
+      safeRoots: [repoRoot, agentDir],
     });
     const developerMode = createDeveloperMode({
       logDirectory: join(agentDir, "logs"),
@@ -138,8 +168,9 @@ export async function createBastionRuntimeHost(
         additionalSkillPaths: [skillPath],
         extensionFactories: [
           bastionHeaderExtension,
-          bastionCliExtension,
+          teamOpsExtension,
           derivedMemoryExtension,
+          baseballRulesExtension,
           bastionCompactionExtension,
           contextProjectionExtension,
           developerMode.extension,
@@ -151,7 +182,13 @@ export async function createBastionRuntimeHost(
         services,
         sessionManager,
         sessionStartEvent,
-        tools: ["read", "bastion_cli", "derived_memory"],
+        tools: [
+          "read",
+          TEAMOPS_TOOL_NAME,
+          "derived_memory",
+          BASEBALL_RULE_INGEST_TOOL_NAME,
+          BASEBALL_RULE_QUERY_TOOL_NAME,
+        ],
       })),
       services,
       diagnostics: services.diagnostics,
@@ -167,6 +204,7 @@ export async function createBastionRuntimeHost(
     });
   } catch (error) {
     derivedMemoryStore.close();
+    baseballRuleStore.close();
     throw error;
   }
 
@@ -176,6 +214,7 @@ export async function createBastionRuntimeHost(
     async dispose() {
       await runtime.dispose();
       derivedMemoryStore.close();
+      baseballRuleStore.close();
     },
   };
 }

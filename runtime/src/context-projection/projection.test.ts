@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
-import type { BastionCliToolDetails } from "../bastion-cli/types.ts";
+import type { TeamOpsToolDetails } from "../teamops/types.ts";
 import { projectContext } from "./projection.ts";
 
 type AgentMessage = ContextEvent["messages"][number];
@@ -140,15 +140,15 @@ describe("context projection", () => {
   it("keeps the current unfinished tool turn unchanged", () => {
     const messages = [
       user("Read the game"),
-      assistantTool("game-1", "bastion_cli", {
+      assistantTool("game-1", "teamops", {
         args: ["game", "read", "--id", "12"],
       }),
       toolResult(
         "game-1",
-        "bastion_cli",
+        "teamops",
         "large current result",
         {
-          kind: "bastion_cli",
+          kind: "teamops",
           ok: true,
           command: ["game", "read", "--id", "12"],
           risk: "read",
@@ -157,7 +157,7 @@ describe("context projection", () => {
             exitCode: 0,
             stderr: "",
           },
-        } satisfies BastionCliToolDetails,
+        } satisfies TeamOpsToolDetails,
       ),
     ];
 
@@ -226,8 +226,8 @@ describe("context projection", () => {
 
   it("replaces completed Bastion read results with stale authority references", () => {
     const hugeResult = JSON.stringify({ events: "x".repeat(20_000) });
-    const details: BastionCliToolDetails = {
-      kind: "bastion_cli",
+    const details: TeamOpsToolDetails = {
+      kind: "teamops",
       ok: true,
       command: ["game", "read", "--id", "12"],
       risk: "read",
@@ -239,10 +239,10 @@ describe("context projection", () => {
     };
     const result = projectContext([
       user("Analyze game 12"),
-      assistantTool("game-12", "bastion_cli", {
+      assistantTool("game-12", "teamops", {
         args: ["game", "read", "--id", "12"],
       }),
-      toolResult("game-12", "bastion_cli", hugeResult, details),
+      toolResult("game-12", "teamops", hugeResult, details),
       assistantText("We lost 1-3."),
       user("Analyze the shortstop", 5),
     ]);
@@ -257,8 +257,8 @@ describe("context projection", () => {
   });
 
   it("preserves confirmed and uncertain write semantics in receipts", () => {
-    const confirmed: BastionCliToolDetails = {
-      kind: "bastion_cli",
+    const confirmed: TeamOpsToolDetails = {
+      kind: "teamops",
       ok: true,
       command: ["game", "score", "set"],
       risk: "write",
@@ -279,8 +279,8 @@ describe("context projection", () => {
         },
       ],
     };
-    const uncertain: BastionCliToolDetails = {
-      kind: "bastion_cli",
+    const uncertain: TeamOpsToolDetails = {
+      kind: "teamops",
       ok: false,
       command: ["lineup", "accept", "--id", "7"],
       risk: "write",
@@ -292,20 +292,20 @@ describe("context projection", () => {
     };
     const result = projectContext([
       user("Save these changes"),
-      assistantTool("score", "bastion_cli", {
+      assistantTool("score", "teamops", {
         args: ["game", "score", "set"],
         input: { game_id: 12, own_score: 5, opponent_score: 3 },
       }),
-      toolResult("score", "bastion_cli", "large score result", confirmed),
+      toolResult("score", "teamops", "large score result", confirmed),
       assistantTool(
         "lineup",
-        "bastion_cli",
+        "teamops",
         { args: ["lineup", "accept", "--id", "7"] },
         4,
       ),
       toolResult(
         "lineup",
-        "bastion_cli",
+        "teamops",
         "large lineup result",
         uncertain,
         5,

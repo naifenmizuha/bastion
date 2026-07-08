@@ -1,8 +1,9 @@
-import { parseCommand } from "../bastion-cli/command-policy.ts";
+import { parseCommand } from "../teamops/command-policy.ts";
 import type {
-  BastionCliParams,
-  BastionCliToolDetails,
-} from "../bastion-cli/types.ts";
+  TeamOpsParams,
+  TeamOpsToolDetails,
+} from "../teamops/types.ts";
+import { isTeamOpsDetailsKind } from "../teamops/types.ts";
 import {
   entityKeysForParams,
 } from "./extractor.ts";
@@ -38,9 +39,9 @@ function containsExpected(
   );
 }
 
-function isBastionDetails(value: unknown): value is BastionCliToolDetails {
+function isBastionDetails(value: unknown): value is TeamOpsToolDetails {
   const object = asObject(value);
-  return object?.kind === "bastion_cli" && typeof object.ok === "boolean";
+  return isTeamOpsDetailsKind(object?.kind) && typeof object.ok === "boolean";
 }
 
 export class BastionFreshnessGuard {
@@ -75,7 +76,7 @@ export class BastionFreshnessGuard {
     }
   }
 
-  blockReason(params: BastionCliParams): string | undefined {
+  blockReason(params: TeamOpsParams): string | undefined {
     let risk;
     try {
       risk = parseCommand(params).spec.risk;

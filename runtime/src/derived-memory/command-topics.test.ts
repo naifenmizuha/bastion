@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { commandSpecs } from "../bastion-cli/command-policy.ts";
+import { commandSpecs } from "../teamops/command-policy.ts";
 import {
   readDependencyTopics,
   writeChangeTopics,

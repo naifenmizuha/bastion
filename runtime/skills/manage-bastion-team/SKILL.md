@@ -1,16 +1,16 @@
 ---
 name: manage-bastion-team
-description: Use Bastion's authoritative baseball CLI through the bastion_cli tool to query or change players, training reports, games, performance analysis, lineups, drill recommendations, reviews, and approved training. Use for natural-language baseball team management tasks that need Bastion data, validation, analysis, or persistence.
+description: "Use the teamops tool to query or change Bastion's authoritative baseball team data: players, training reports, games, performance analysis, lineups, drill recommendations, reviews, and approved training. Use for natural-language baseball team management tasks that need Bastion data, validation, analysis, or persistence."
 ---
 
 # Manage Bastion Team
 
-Use `bastion_cli` as the only authority for persisted team facts. Do not run the
+Use `teamops` as the only authority for persisted team facts. Do not run the
 CLI through a shell, inspect SQLite, or invent unsupported commands.
 
 ## CLI quick manual
 
-Call `bastion_cli` with `args` as separate command/flag tokens. Put structured
+Call `teamops` with `args` as separate command/flag tokens. Put structured
 payloads in `input`. Never include `--db`, `--format`, or `--input`; the tool
 owns those protocol details.
 
@@ -75,6 +75,6 @@ Read multiple domain references only for genuinely cross-domain work.
 ## Derived memory
 
 Use `derived_memory` only for reusable conclusions derived from at least two
-distinct successful `bastion_cli` reads. Search before repeating complex
+distinct successful `teamops` reads. Search before repeating complex
 cross-game, cross-player, or cross-time analysis. Never use derived memory
 instead of refreshing authoritative facts required for a write.

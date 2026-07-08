@@ -158,7 +158,7 @@ export function createDerivedMemoryExtension(
       name: "derived_memory",
       label: "Derived Memory",
       description:
-        "Save and retrieve reusable conclusions derived from at least two successful Bastion CLI reads. This is not authoritative data. Search before repeating complex analysis; never rely on stale memories. Forget only when the user explicitly requests deletion.",
+        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. This is not authoritative data. Search before repeating complex analysis; never rely on stale memories. Forget only when the user explicitly requests deletion.",
       promptSnippet:
         "Search, save, read, or explicitly forget dependency-backed derived conclusions",
       parameters: DerivedMemoryParameters,
@@ -182,7 +182,7 @@ export function createDerivedMemoryExtension(
                 error: {
                   code: "INSUFFICIENT_DEPENDENCIES",
                   message:
-                    "a derived memory requires at least two distinct successful Bastion CLI reads",
+                    "a derived memory requires at least two distinct successful teamops reads",
                 },
               });
             }
@@ -198,7 +198,7 @@ export function createDerivedMemoryExtension(
                 message:
                   code === "DUPLICATE_DEPENDENCY"
                     ? "dependencies must contain distinct CLI commands"
-                    : "every dependency must exactly match a successful Bastion CLI read in the current session",
+                    : "every dependency must exactly match a successful teamops read in the current session",
               },
             });
           }

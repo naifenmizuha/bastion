@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { BastionCliToolDetails } from "../bastion-cli/types.ts";
+import type { TeamOpsToolDetails } from "../teamops/types.ts";
 import { extractBastionContext } from "./extractor.ts";
 
 function assistant(
@@ -15,7 +15,7 @@ function assistant(
       {
         type: "toolCall",
         id,
-        name: "bastion_cli",
+        name: "teamops",
         arguments: { args, ...(input ? { input } : {}) },
       },
     ],
@@ -25,13 +25,13 @@ function assistant(
 
 function result(
   id: string,
-  details: BastionCliToolDetails,
+  details: TeamOpsToolDetails,
   timestamp = 2,
 ): unknown {
   return {
     role: "toolResult",
     toolCallId: id,
-    toolName: "bastion_cli",
+    toolName: "teamops",
     content: [{ type: "text", text: "{}" }],
     details,
     isError: !details.ok,
@@ -41,8 +41,8 @@ function result(
 
 describe("Bastion compaction extractor", () => {
   it("extracts confirmed writes and authoritative refresh references", () => {
-    const details: BastionCliToolDetails = {
-      kind: "bastion_cli",
+    const details: TeamOpsToolDetails = {
+      kind: "teamops",
       ok: true,
       command: ["game", "score", "set"],
       risk: "write",
@@ -95,7 +95,7 @@ describe("Bastion compaction extractor", () => {
     const extraction = extractBastionContext([
       assistant("call-2", ["lineup", "accept", "--id", "7"]),
       result("call-2", {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: false,
         command: ["lineup", "accept", "--id", "7"],
         error: {
@@ -115,7 +115,7 @@ describe("Bastion compaction extractor", () => {
         opponent_score: 3,
       }),
       result("call-3", {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: false,
         command: ["game", "score", "set"],
         risk: "write",
@@ -159,7 +159,7 @@ describe("Bastion compaction extractor", () => {
         starters: [],
       }),
       result("call-4", {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: true,
         command: ["lineup", "write"],
         risk: "write",

@@ -1,4 +1,4 @@
-import type { BastionCliParams } from "../bastion-cli/types.ts";
+import type { TeamOpsParams } from "../teamops/types.ts";
 
 interface TopicRule {
   prefix: readonly string[];
@@ -63,7 +63,7 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function normalizedCommand(params: BastionCliParams): string {
+export function normalizedCommand(params: TeamOpsParams): string {
   return stableJson({
     args: params.args,
     ...(params.input !== undefined ? { input: params.input } : {}),

@@ -7,8 +7,8 @@ export const CONTEXT_CATEGORIES = [
   "Context projection receipt",
   "Skill/Reference 文档内容",
   "read 调用参数",
-  "bastion_cli 调用参数",
-  "bastion_cli 结果/验证",
+  "teamops 调用参数",
+  "teamops 结果/验证",
   "其他",
 ] as const;
 
@@ -139,8 +139,8 @@ function classifyInput(
         counts,
         item.name === "read"
           ? "read 调用参数"
-          : item.name === "bastion_cli"
-            ? "bastion_cli 调用参数"
+          : item.name === "teamops"
+            ? "teamops 调用参数"
             : "其他",
         item,
       );
@@ -151,8 +151,8 @@ function classifyInput(
         counts,
         isSkillRead(call)
           ? "Skill/Reference 文档内容"
-          : call?.name === "bastion_cli"
-            ? "bastion_cli 结果/验证"
+          : call?.name === "teamops"
+            ? "teamops 结果/验证"
             : "其他",
         item,
       );
@@ -259,8 +259,8 @@ function snapshot(
       runtime: sum(
         "Context projection receipt",
         "read 调用参数",
-        "bastion_cli 调用参数",
-        "bastion_cli 结果/验证",
+        "teamops 调用参数",
+        "teamops 结果/验证",
         "其他",
       ),
       conversation: sum("用户消息", "模型 reasoning", "助手文本"),
@@ -273,8 +273,8 @@ function snapshot(
       runtime:
         allocatedTokens["Context projection receipt"] +
         allocatedTokens["read 调用参数"] +
-        allocatedTokens["bastion_cli 调用参数"] +
-        allocatedTokens["bastion_cli 结果/验证"] +
+        allocatedTokens["teamops 调用参数"] +
+        allocatedTokens["teamops 结果/验证"] +
         allocatedTokens["其他"],
       conversation:
         allocatedTokens["用户消息"] +

@@ -21,6 +21,6 @@ describe("runtime transcript renderer", () => {
     ]);
     assert.match(transcript, /固定输入/);
     assert.match(transcript, /最终回复/);
-    assert.doesNotMatch(transcript, /中间回复|raw tool payload|bastion_cli/);
+    assert.doesNotMatch(transcript, /中间回复|raw tool payload|teamops/);
   });
 });

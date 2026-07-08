@@ -68,7 +68,7 @@ Return ONLY one JSON object with exactly these fields:
 Rules:
 - Summarize user intent, constraints, decisions, progress, blockers, and next steps.
 - Mark assistant proposals as actor "assistant"; never turn them into user decisions.
-- Do not decide whether a bastion_cli write succeeded, failed, or persisted. Deterministic code handles that.
+- Do not decide whether a teamops write succeeded, failed, or persisted. Deterministic code handles that.
 - Treat CLI output as historical observations, not guaranteed current database truth.
 - Preserve exact entity names, IDs, dates, error codes, and unresolved questions.
 - Do not copy large CLI payloads.

@@ -54,7 +54,7 @@ function recordReads(ledger: CliObservationLedger, bus: LocalChangeEventBus) {
         args: ["game", "analysis", "read", "--game-id", gameId],
       },
       {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: true,
         risk: "read",
         command: ["game", "analysis", "read", "--game-id", gameId],

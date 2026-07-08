@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/main.ts",
-    "test": "node --import tsx --test src/bastion-cli/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
+    "pdf2md": "node --import tsx scripts/pdf2md.ts",
+    "test": "node --import tsx --test src/teamops/*.test.ts src/baseball-rules/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -17,6 +18,7 @@
     "@earendil-works/pi-ai": "0.80.2",
     "@earendil-works/pi-coding-agent": "0.80.2",
     "@earendil-works/pi-tui": "0.80.2",
+    "@zvec/zvec": "^0.5.0",
     "typebox": "1.1.38"
   },
   "devDependencies": {

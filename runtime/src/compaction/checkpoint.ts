@@ -8,7 +8,7 @@ import type {
   PendingAction,
   ReadObservation,
 } from "./types.ts";
-import { parseCommand } from "../bastion-cli/command-policy.ts";
+import { parseCommand } from "../teamops/command-policy.ts";
 import {
   BASTION_COMPACTION_KIND,
   BASTION_COMPACTION_POLICY_VERSION,
@@ -395,7 +395,7 @@ ${bullets(details.narrative.blocked)}
 
 ## Authoritative Data Policy
 - Bastion database facts below are references, not cached current truth.
-- Refresh a referenced entity with bastion_cli before relying on its mutable fields.
+- Refresh a referenced entity with teamops before relying on its mutable fields.
 
 ## Authority References
 ${bullets(refs)}
@@ -415,7 +415,7 @@ ${details.narrative.nextSteps
   .join("\n") || "1. (none)"}
 
 ## Continuation Rules
-- Treat only bastion_cli as authoritative for persisted team facts.
+- Treat only teamops as authoritative for persisted team facts.
 - Distinguish authoritative facts, suggestions, candidates, and persisted changes.
 - Never replay an uncertain write before authoritative read-back.`;
 }

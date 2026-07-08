@@ -16,14 +16,14 @@ describe("manual review artifact", () => {
             { type: "text", text: "先查询" },
             {
               type: "toolCall",
-              name: "bastion_cli",
+              name: "teamops",
               arguments: { args: ["player", "list"] },
             },
           ],
         },
         {
           role: "toolResult",
-          toolName: "bastion_cli",
+          toolName: "teamops",
           content: [{ type: "text", text: '{"ok":true}' }],
           details: { ok: true },
         },
@@ -37,8 +37,8 @@ describe("manual review artifact", () => {
     assert.match(report, /结论：未评价/);
     assert.match(report, /评分（0–100）：/);
     assert.match(report, /助手过程 1/);
-    assert.match(report, /工具调用 1：`bastion_cli`/);
-    assert.match(report, /工具结果 1：`bastion_cli`/);
+    assert.match(report, /工具调用 1：`teamops`/);
+    assert.match(report, /工具结果 1：`teamops`/);
     assert.match(report, /助手最终回答/);
   });
 

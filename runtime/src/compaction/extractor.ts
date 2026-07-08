@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
-import { parseCommand } from "../bastion-cli/command-policy.ts";
+import { parseCommand } from "../teamops/command-policy.ts";
 import type {
-  BastionCliParams,
-  BastionCliToolDetails,
+  TeamOpsParams,
+  TeamOpsToolDetails,
   CliEnvelope,
   VerificationResult,
-} from "../bastion-cli/types.ts";
+} from "../teamops/types.ts";
+import {
+  TEAMOPS_DETAILS_KIND,
+  isTeamOpsDetailsKind,
+  isTeamOpsToolName,
+} from "../teamops/types.ts";
 import type {
   AuthorityReference,
   BastionExtraction,
@@ -16,7 +21,7 @@ import type {
 
 interface ToolCall {
   id: string;
-  args: BastionCliParams;
+  args: TeamOpsParams;
   timestamp: number;
 }
 
@@ -77,14 +82,14 @@ function flag(args: readonly string[], name: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-function envelopeData(details: BastionCliToolDetails): Record<string, unknown> | undefined {
+function envelopeData(details: TeamOpsToolDetails): Record<string, unknown> | undefined {
   const envelope = details.result?.envelope;
   return envelope?.ok ? asObject(envelope.data) : undefined;
 }
 
-function isBastionDetails(value: unknown): value is BastionCliToolDetails {
+function isBastionDetails(value: unknown): value is TeamOpsToolDetails {
   const object = asObject(value);
-  return object?.kind === "bastion_cli" && typeof object.ok === "boolean";
+  return isTeamOpsDetailsKind(object?.kind) && typeof object.ok === "boolean";
 }
 
 function toolCalls(messages: readonly unknown[]): Map<string, ToolCall> {
@@ -96,7 +101,7 @@ function toolCalls(messages: readonly unknown[]): Map<string, ToolCall> {
       const block = asObject(rawBlock);
       if (
         block?.type !== "toolCall" ||
-        block.name !== "bastion_cli" ||
+        !isTeamOpsToolName(block.name) ||
         typeof block.id !== "string"
       ) {
         continue;
@@ -117,7 +122,7 @@ function toolCalls(messages: readonly unknown[]): Map<string, ToolCall> {
   return calls;
 }
 
-function operationId(call: ToolCall | undefined, details: BastionCliToolDetails): string {
+function operationId(call: ToolCall | undefined, details: TeamOpsToolDetails): string {
   if (call) return call.id;
   return createHash("sha256")
     .update(JSON.stringify([details.command, details.error?.code]))
@@ -202,7 +207,7 @@ function fallbackVerification(
 
 function classifyOutcome(
   command: readonly string[],
-  details: BastionCliToolDetails,
+  details: TeamOpsToolDetails,
 ): OperationOutcome {
   const data = envelopeData(details);
   if (
@@ -240,8 +245,8 @@ function reference(
 }
 
 function referencesFor(
-  params: BastionCliParams,
-  details: BastionCliToolDetails,
+  params: TeamOpsParams,
+  details: TeamOpsToolDetails,
   observedAt: number,
 ): AuthorityReference[] {
   const args = details.command.length > 0 ? details.command : params.args;
@@ -421,8 +426,8 @@ function referencesFor(
 }
 
 function riskFor(
-  params: BastionCliParams,
-  details: BastionCliToolDetails,
+  params: TeamOpsParams,
+  details: TeamOpsToolDetails,
 ): "read" | "compute_write" | "write" | undefined {
   if (details.risk) return details.risk;
   try {
@@ -432,7 +437,7 @@ function riskFor(
   }
 }
 
-function successfulReadData(details: BastionCliToolDetails): unknown | undefined {
+function successfulReadData(details: TeamOpsToolDetails): unknown | undefined {
   if (!details.ok || details.risk !== "read") return undefined;
   const envelope: CliEnvelope | undefined = details.result?.envelope;
   return envelope?.ok ? envelope.data : undefined;
@@ -451,7 +456,7 @@ export function extractBastionContext(
     const message = raw as MessageLike;
     if (
       message.role !== "toolResult" ||
-      message.toolName !== "bastion_cli" ||
+      !isTeamOpsToolName(message.toolName) ||
       typeof message.toolCallId !== "string"
     ) {
       continue;
@@ -517,8 +522,8 @@ export function extractBastionContext(
       continue;
     }
     if (risk === "read") continue;
-    const syntheticDetails: BastionCliToolDetails = {
-      kind: "bastion_cli",
+    const syntheticDetails: TeamOpsToolDetails = {
+      kind: TEAMOPS_DETAILS_KIND,
       ok: false,
       command: [...call.args.args],
       risk,
@@ -550,15 +555,15 @@ export function extractBastionContext(
   return { authorityRefs, operations, reads, warnings };
 }
 
-export function entityKeysForParams(params: BastionCliParams): string[] {
-  let risk: BastionCliToolDetails["risk"];
+export function entityKeysForParams(params: TeamOpsParams): string[] {
+  let risk: TeamOpsToolDetails["risk"];
   try {
     risk = parseCommand(params).spec.risk;
   } catch {
     return [];
   }
-  const details: BastionCliToolDetails = {
-    kind: "bastion_cli",
+  const details: TeamOpsToolDetails = {
+    kind: TEAMOPS_DETAILS_KIND,
     ok: false,
     command: [...params.args],
     risk,

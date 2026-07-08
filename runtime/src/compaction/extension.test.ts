@@ -47,7 +47,7 @@ function event() {
             {
               type: "toolCall",
               id: "write-1",
-              name: "bastion_cli",
+              name: "teamops",
               arguments: {
                 args: ["game", "score", "set"],
                 input: {
@@ -63,10 +63,10 @@ function event() {
         {
           role: "toolResult",
           toolCallId: "write-1",
-          toolName: "bastion_cli",
+          toolName: "teamops",
           content: [{ type: "text", text: "{}" }],
           details: {
-            kind: "bastion_cli",
+            kind: "teamops",
             ok: false,
             command: ["game", "score", "set"],
             risk: "write",

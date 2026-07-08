@@ -65,7 +65,7 @@ describe("Bastion freshness guard", () => {
     );
 
     guard.observeToolResult({
-      kind: "bastion_cli",
+      kind: "teamops",
       ok: true,
       command: ["game", "read", "--id", "12"],
       risk: "read",
@@ -87,7 +87,7 @@ describe("Bastion freshness guard", () => {
     );
 
     guard.observeToolResult({
-      kind: "bastion_cli",
+      kind: "teamops",
       ok: true,
       command: ["game", "read", "--id", "12"],
       risk: "read",

@@ -36,7 +36,7 @@ describe("provider payload context analysis", () => {
     const cliCall = {
       type: "function_call",
       call_id: "cli-1",
-      name: "bastion_cli",
+      name: "teamops",
       arguments: '{"args":["player","list"]}',
     };
     const first = [

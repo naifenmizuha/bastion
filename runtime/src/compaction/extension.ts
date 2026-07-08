@@ -3,7 +3,8 @@ import type {
   ExtensionFactory,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import type { BastionCliParams } from "../bastion-cli/types.ts";
+import type { TeamOpsParams } from "../teamops/types.ts";
+import { isTeamOpsToolName } from "../teamops/types.ts";
 import {
   buildCheckpoint,
   emergencyNarrative,
@@ -55,7 +56,7 @@ function fileLists(
   };
 }
 
-function paramsFromToolInput(input: Record<string, unknown>): BastionCliParams | undefined {
+function paramsFromToolInput(input: Record<string, unknown>): TeamOpsParams | undefined {
   if (
     !Array.isArray(input.args) ||
     input.args.some((item) => typeof item !== "string")
@@ -170,13 +171,13 @@ export function createBastionCompactionExtension(
     });
 
     pi.on("tool_result", (event) => {
-      if (event.toolName === "bastion_cli") {
+      if (isTeamOpsToolName(event.toolName)) {
         guard.observeToolResult(event.details);
       }
     });
 
     pi.on("tool_call", (event) => {
-      if (event.toolName !== "bastion_cli") return;
+      if (!isTeamOpsToolName(event.toolName)) return;
       const params = paramsFromToolInput(event.input);
       if (!params) return;
       const reason = guard.blockReason(params);

@@ -2,7 +2,7 @@
 
 ## When to use
 
-Use this reference when unsure about `bastion_cli` call shape, write approval,
+Use this reference when unsure about `teamops` call shape, write approval,
 batch behavior, cancellation, failed verification, or error handling.
 
 ## Commands
@@ -78,7 +78,7 @@ have occurred but was not confirmed.
 | `APPROVAL_REQUIRED` | Explain that interactive confirmation is required |
 | `TIMEOUT`, `ABORTED` | Do not replay; read current state first |
 | `UNCLASSIFIED_COMMAND`, `INVALID_FLAGS` | Stop; command or flags are unsupported |
-| `CLI_NOT_AVAILABLE` | Ask the operator to build `out/bastion` |
+| `CLI_NOT_AVAILABLE` | Ask the operator to build `out/teamops` |
 | `WRITE_VERIFICATION_FAILED` | Report uncertain write and show verification evidence |
 
 Never query SQLite or fall back to shell commands.

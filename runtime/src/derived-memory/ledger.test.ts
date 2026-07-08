@@ -11,7 +11,7 @@ describe("CLI observation ledger", () => {
       "read-1",
       { args: ["game", "read", "--id", "1"] },
       {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: true,
         risk: "read",
         command: ["game", "read", "--id", "1"],
@@ -23,7 +23,7 @@ describe("CLI observation ledger", () => {
       "read-2",
       { args: ["game", "analysis", "read", "--game-id", "1"] },
       {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: true,
         risk: "read",
         command: ["game", "analysis", "read", "--game-id", "1"],
@@ -66,7 +66,7 @@ describe("CLI observation ledger", () => {
       "write-1",
       { args: ["game", "score", "set"], input: { game_id: 1 } },
       {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: true,
         risk: "write",
         command: ["game", "score", "set"],
@@ -78,7 +78,7 @@ describe("CLI observation ledger", () => {
       "write-2",
       { args: ["lineup", "accept", "--id", "2"] },
       {
-        kind: "bastion_cli",
+        kind: "teamops",
         ok: false,
         risk: "write",
         command: ["lineup", "accept", "--id", "2"],

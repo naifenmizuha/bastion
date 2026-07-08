@@ -1,5 +1,9 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
-import type { BastionCliToolDetails } from "../bastion-cli/types.ts";
+import type { TeamOpsToolDetails } from "../teamops/types.ts";
+import {
+  isTeamOpsDetailsKind,
+  isTeamOpsToolName,
+} from "../teamops/types.ts";
 import { extractBastionContext } from "../compaction/extractor.ts";
 import type {
   AuthorityReference,
@@ -176,9 +180,9 @@ function validateCompletedToolProtocol(
   return { valid: true, calls: calls.size, results: results.size };
 }
 
-function isBastionDetails(value: unknown): value is BastionCliToolDetails {
+function isBastionDetails(value: unknown): value is TeamOpsToolDetails {
   const object = asObject(value);
-  return object?.kind === "bastion_cli" && typeof object.ok === "boolean";
+  return isTeamOpsDetailsKind(object?.kind) && typeof object.ok === "boolean";
 }
 
 function validateBastionExtraction(
@@ -190,7 +194,10 @@ function validateBastionExtraction(
 
   for (const raw of messages) {
     const message = raw as MessageLike;
-    if (message.role !== "toolResult" || message.toolName !== "bastion_cli") {
+    if (
+      message.role !== "toolResult" ||
+      !isTeamOpsToolName(message.toolName)
+    ) {
       continue;
     }
     if (!isBastionDetails(message.details)) {

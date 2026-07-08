@@ -1,5 +1,5 @@
-app := "bastion"
-src_dir := "cli"
+app := "teamops"
+src_dir := "teamops"
 runtime_dir := "runtime"
 out_dir := "out"
 bin := out_dir / app
@@ -30,7 +30,7 @@ rt-check:
     cd {{runtime_dir}} && ./node_modules/.bin/tsc --noEmit
 
 rt-test: build
-    cd {{runtime_dir}} && node --import tsx --test src/bastion-cli/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts
+    cd {{runtime_dir}} && node --import tsx --test src/teamops/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts
 
 rt-dev: build
     cd {{runtime_dir}} && pnpm dev

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type {
-  BastionCliParams,
-  BastionCliToolDetails,
-} from "../bastion-cli/types.ts";
+  TeamOpsParams,
+  TeamOpsToolDetails,
+} from "../teamops/types.ts";
 import {
   normalizedCommand,
   readDependencyTopics,
@@ -18,7 +18,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function commandHash(params: BastionCliParams): string {
+export function commandHash(params: TeamOpsParams): string {
   return createHash("sha256").update(normalizedCommand(params)).digest("hex");
 }
 
@@ -27,8 +27,8 @@ export class CliObservationLedger {
 
   record(
     toolCallId: string,
-    params: BastionCliParams,
-    details: BastionCliToolDetails,
+    params: TeamOpsParams,
+    details: TeamOpsToolDetails,
     publisher: ChangeEventPublisher,
     observedAt = Date.now(),
   ): void {
@@ -63,7 +63,7 @@ export class CliObservationLedger {
     const resolved: SuccessfulReadObservation[] = [];
     const seen = new Set<string>();
     for (const request of requests) {
-      const params: BastionCliParams = {
+      const params: TeamOpsParams = {
         args: request.args,
         ...(request.input !== undefined ? { input: request.input } : {}),
       };
