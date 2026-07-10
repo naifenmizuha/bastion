@@ -77,12 +77,17 @@ describe("baseball rule embedding provider", () => {
     });
     assert.deepEqual(Object.keys(bodies[0] as Record<string, unknown>).sort(), [
       "dimensions",
+      "encoding_format",
       "input",
       "model",
     ]);
     assert.deepEqual(
       bodies.map((body) => (body as { dimensions: number }).dimensions),
       [2, 2, 2],
+    );
+    assert.deepEqual(
+      bodies.map((body) => (body as { encoding_format: string }).encoding_format),
+      ["float", "float", "float"],
     );
   });
 
@@ -102,7 +107,7 @@ describe("baseball rule embedding provider", () => {
 
     await assert.rejects(
       provider.embed(["a"]),
-      /embedding request failed: 400 Bad Request: .*too many inputs/,
+      /embedding request failed: 400 Bad Request: .*too many inputs.*model=test-model dimension=2 batchSize=1 endpoint=https:\/\/example\.test/,
     );
   });
 
@@ -120,7 +125,27 @@ describe("baseball rule embedding provider", () => {
 
     await assert.rejects(
       provider.embed(["a", "bb"]),
-      /embedding response body was empty: 200 OK for batch size 2/,
+      /embedding response body was empty: 200 OK .*model=test-model dimension=2 batchSize=2 endpoint=https:\/\/example\.test/,
+    );
+  });
+
+  it("reports response vector count mismatches with request context", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        statusText: "OK",
+      })) as typeof fetch;
+
+    const provider = createEnvEmbeddingProvider({
+      endpoint: "https://example.test/embeddings",
+      apiKey: "key",
+      model: "test-model",
+      dimension: 2,
+    });
+
+    await assert.rejects(
+      provider.embed(["a"]),
+      /embedding response did not match the request: expected 1 vectors, got 0 .*model=test-model dimension=2 batchSize=1 endpoint=https:\/\/example\.test/,
     );
   });
 });

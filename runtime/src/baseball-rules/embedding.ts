@@ -38,6 +38,26 @@ async function responseErrorMessage(response: Response): Promise<string> {
   return `embedding request failed: ${response.status} ${response.statusText}${suffix}`;
 }
 
+function endpointLabel(endpoint: string): string {
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return endpoint;
+  }
+}
+
+function requestLabel(
+  options: EnvEmbeddingOptions,
+  texts: readonly string[],
+): string {
+  return [
+    `model=${options.model}`,
+    `dimension=${options.dimension}`,
+    `batchSize=${texts.length}`,
+    `endpoint=${endpointLabel(options.endpoint)}`,
+  ].join(" ");
+}
+
 export function embeddingOptionsFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): EnvEmbeddingOptions | undefined {
@@ -86,15 +106,18 @@ async function embedBatch(
       model: options.model,
       input: texts,
       dimensions: options.dimension,
+      encoding_format: "float",
     }),
   });
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
+    throw new Error(
+      `${await responseErrorMessage(response)} (${requestLabel(options, texts)})`,
+    );
   }
   const body = (await response.text()).trim();
   if (!body) {
     throw new Error(
-      `embedding response body was empty: ${response.status} ${response.statusText} for batch size ${texts.length}`,
+      `embedding response body was empty: ${response.status} ${response.statusText} (${requestLabel(options, texts)})`,
     );
   }
   let payload: { data?: Array<{ embedding?: unknown }> };
@@ -109,11 +132,16 @@ async function embedBatch(
         ? `${body.slice(0, MAX_ERROR_BODY_CHARS)}...`
         : body;
     throw new Error(
-      `embedding response was not valid JSON: ${message}: ${preview}`,
+      `embedding response was not valid JSON: ${message} (${requestLabel(options, texts)}): ${preview}`,
     );
   }
   if (!Array.isArray(payload.data) || payload.data.length !== texts.length) {
-    throw new Error("embedding response did not match the request");
+    const received = Array.isArray(payload.data)
+      ? payload.data.length
+      : "missing";
+    throw new Error(
+      `embedding response did not match the request: expected ${texts.length} vectors, got ${received} (${requestLabel(options, texts)})`,
+    );
   }
   return payload.data.map((item) => {
     if (
@@ -125,7 +153,7 @@ async function embedBatch(
     const vector = item.embedding as number[];
     if (vector.length !== options.dimension) {
       throw new Error(
-        `embedding dimension mismatch: expected ${options.dimension}, got ${vector.length}`,
+        `embedding dimension mismatch: expected ${options.dimension}, got ${vector.length} (${requestLabel(options, texts)})`,
       );
     }
     return vector;
