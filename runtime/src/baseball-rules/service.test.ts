@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { BaseballRuleService, BaseballRuleError } from "./service.ts";
 import type {
@@ -24,6 +27,14 @@ class DeterministicEmbedder implements EmbeddingProvider {
         1,
       ];
     });
+  }
+}
+
+class ThrowingEmbedder implements EmbeddingProvider {
+  readonly dimension = 6;
+
+  async embed(): Promise<number[][]> {
+    throw new Error("embedder should not be called");
   }
 }
 
@@ -144,6 +155,18 @@ An Infield Fly is a fair fly ball which can be caught by an infielder with ordin
 An appeal may be made when a runner fails to retouch a base after a fair or foul ball is legally caught.
 `;
 
+const longRuleMarkdown = `
+# Official Baseball Rules
+
+## Rule 1 Long Section
+
+${Array.from({ length: 8 }, (_, index) =>
+  `Paragraph ${index + 1} explains a related part of the same rule. ${
+    "The runner, batter, fielders, and umpire must be considered together before the ruling is finalized. ".repeat(4)
+  }`
+).join("\n\n")}
+`;
+
 describe("baseball rule service", () => {
   it("ingests Markdown chunks with metadata, rule refs, adjacency, and replacement", async () => {
     const { service, store } = harness();
@@ -174,6 +197,142 @@ describe("baseball rule service", () => {
     });
     assert.equal(store.chunks.size, 1);
     assert.equal([...store.chunks.values()][0]?.ruleRef, "6.01");
+  });
+
+  it("uses custom chunk strategy for ingest while preserving adjacency", async () => {
+    const { service, store } = harness();
+    const broad = await service.ingest({
+      documents: [{
+        title: "Official Baseball Rules",
+        source: "OBR",
+        markdown: longRuleMarkdown,
+      }],
+      chunkStrategy: {
+        targetChars: 5_000,
+        maxChars: 6_000,
+        overlapChars: 100,
+      },
+    });
+    const broadCount = broad.documents[0]?.chunks ?? 0;
+
+    const fine = await service.ingest({
+      documents: [{
+        title: "Official Baseball Rules",
+        source: "OBR",
+        markdown: longRuleMarkdown,
+      }],
+      chunkStrategy: {
+        targetChars: 700,
+        maxChars: 1_000,
+        overlapChars: 80,
+      },
+    });
+    assert.ok((fine.documents[0]?.chunks ?? 0) > broadCount);
+    const chunks = [...store.chunks.values()];
+    assert.equal(chunks[0]?.nextChunkId, chunks[1]?.id);
+    assert.equal(chunks[1]?.previousChunkId, chunks[0]?.id);
+  });
+
+  it("rejects invalid chunk strategy values", async () => {
+    const { service } = harness();
+    await assert.rejects(
+      service.ingest({
+        documents: [{
+          title: "Official Baseball Rules",
+          source: "OBR",
+          markdown: infieldMarkdown,
+        }],
+        chunkStrategy: {
+          targetChars: 200,
+          maxChars: 300,
+          overlapChars: 200,
+        },
+      }),
+      (error) =>
+        error instanceof BaseballRuleError &&
+        error.code === "INVALID_INPUT" &&
+        /overlapChars/.test(error.message),
+    );
+  });
+
+  it("previews chunk strategies without embedding or writing the store", async () => {
+    const store = new MemoryRuleStore();
+    const service = new BaseballRuleService({
+      store,
+      embedder: new ThrowingEmbedder(),
+      safeRoots: [process.cwd()],
+      now: () => 100,
+    });
+    const preview = await service.previewChunks({
+      documents: [{
+        title: "Official Baseball Rules",
+        source: "OBR",
+        markdown: longRuleMarkdown,
+      }],
+      strategies: [
+        {
+          name: "fine",
+          targetChars: 700,
+          maxChars: 1_000,
+          overlapChars: 80,
+        },
+        {
+          name: "broad",
+          targetChars: 5_000,
+          maxChars: 6_000,
+          overlapChars: 100,
+        },
+      ],
+    });
+
+    assert.equal(store.chunks.size, 0);
+    assert.equal(preview.documents[0]?.strategies[0]?.name, "fine");
+    assert.ok(
+      (preview.documents[0]?.strategies[0]?.chunks ?? 0) >
+        (preview.documents[0]?.strategies[1]?.chunks ?? 0),
+    );
+    assert.ok((preview.documents[0]?.strategies[0]?.p95Chars ?? 0) > 0);
+  });
+
+  it("reads Markdown paths inside safe root subdirectories", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "bastion-rules-"));
+    try {
+      const rulesDirectory = join(directory, "material");
+      await mkdir(rulesDirectory);
+      const rulesPath = join(rulesDirectory, "rules.md");
+      await writeFile(rulesPath, infieldMarkdown, "utf8");
+      const service = new BaseballRuleService({
+        store: new MemoryRuleStore(),
+        embedder: new ThrowingEmbedder(),
+        safeRoots: [directory],
+      });
+
+      const preview = await service.previewChunks({
+        documents: [{
+          title: "Official Baseball Rules",
+          source: "OBR",
+          path: rulesPath,
+        }],
+        strategies: [{ name: "balanced" }],
+      });
+
+      assert.equal(preview.documents[0]?.strategies[0]?.chunks, 2);
+      await assert.rejects(
+        service.previewChunks({
+          documents: [{
+            title: "Outside Rules",
+            source: "OBR",
+            path: join(directory, "..", "outside.md"),
+          }],
+          strategies: [{ name: "balanced" }],
+        }),
+        (error) =>
+          error instanceof BaseballRuleError &&
+          error.code === "PATH_NOT_ALLOWED",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects direct raw-query retrieval without an agentic plan", async () => {

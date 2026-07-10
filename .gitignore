@@ -5,6 +5,8 @@
 /runtime/node_modules
 /runtime/coverage
 /runtime/eval-results
+/runtime/.env
+/runtime/.env.local
 /eval-results
 /.pnpm-store
 /prd

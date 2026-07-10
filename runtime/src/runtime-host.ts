@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,7 @@ import {
   embeddingOptionsFromEnv,
 } from "./baseball-rules/embedding.ts";
 import {
+  BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
   BASEBALL_RULE_INGEST_TOOL_NAME,
   BASEBALL_RULE_QUERY_TOOL_NAME,
 } from "./baseball-rules/types.ts";
@@ -39,6 +40,7 @@ import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
 import { CliObservationLedger } from "./derived-memory/ledger.ts";
 import { DerivedMemoryStore } from "./derived-memory/store.ts";
+import { loadRuntimeEnv } from "./env-loader.ts";
 
 const bastionHeaderExtension: ExtensionFactory = (pi) => {
   pi.on("session_start", (_event, context) => {
@@ -76,12 +78,21 @@ export function repositoryRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 }
 
+function runtimeSkillPaths(repoRoot: string): string[] {
+  const skillsRoot = join(repoRoot, "runtime", "skills");
+  return readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(skillsRoot, entry.name))
+    .sort();
+}
+
 export async function createBastionRuntimeHost(
   options: BastionRuntimeHostOptions = {},
 ): Promise<BastionRuntimeHost> {
   const repoRoot = repositoryRoot();
+  loadRuntimeEnv(repoRoot);
   const defaultAgentDir = join(homedir(), ".bastion", "agent");
-  const skillPath = join(repoRoot, "runtime", "skills", "manage-bastion-team");
+  const skillPaths = runtimeSkillPaths(repoRoot);
   const databasePath =
     options.databasePath ??
     resolve(repoRoot, process.env.BASTION_DB_PATH ?? "bastion.db");
@@ -165,7 +176,7 @@ export async function createBastionRuntimeHost(
       settingsManager,
       modelRegistry,
       resourceLoaderOptions: {
-        additionalSkillPaths: [skillPath],
+        additionalSkillPaths: skillPaths,
         extensionFactories: [
           bastionHeaderExtension,
           teamOpsExtension,
@@ -186,6 +197,7 @@ export async function createBastionRuntimeHost(
           "read",
           TEAMOPS_TOOL_NAME,
           "derived_memory",
+          BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
           BASEBALL_RULE_INGEST_TOOL_NAME,
           BASEBALL_RULE_QUERY_TOOL_NAME,
         ],

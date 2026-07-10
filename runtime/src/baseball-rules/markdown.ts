@@ -1,13 +1,57 @@
 import { createHash } from "node:crypto";
-import type { BaseballRuleChunk, BaseballRuleDocumentInput } from "./types.ts";
+import type {
+  BaseballRuleChunk,
+  BaseballRuleChunkStrategy,
+  BaseballRuleDocumentInput,
+} from "./types.ts";
 
-const TARGET_CHARS = 1_200;
-const MAX_CHARS = 1_800;
-const OVERLAP_CHARS = 200;
+export const DEFAULT_CHUNK_STRATEGY = {
+  targetChars: 1_200,
+  maxChars: 1_800,
+  overlapChars: 200,
+} satisfies Required<BaseballRuleChunkStrategy>;
+
+export interface BaseballRuleChunkStats {
+  chunks: number;
+  minChars: number;
+  avgChars: number;
+  maxChars: number;
+  p95Chars: number;
+}
 
 interface Section {
   headingPath: string[];
   body: string;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function nonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function normalizeChunkStrategy(
+  input: BaseballRuleChunkStrategy | undefined,
+): Required<BaseballRuleChunkStrategy> {
+  const strategy = { ...DEFAULT_CHUNK_STRATEGY, ...input };
+  if (!positiveInteger(strategy.targetChars)) {
+    throw new Error("chunkStrategy.targetChars must be a positive integer");
+  }
+  if (!positiveInteger(strategy.maxChars)) {
+    throw new Error("chunkStrategy.maxChars must be a positive integer");
+  }
+  if (!nonNegativeInteger(strategy.overlapChars)) {
+    throw new Error("chunkStrategy.overlapChars must be a non-negative integer");
+  }
+  if (strategy.maxChars < strategy.targetChars) {
+    throw new Error("chunkStrategy.maxChars must be greater than or equal to targetChars");
+  }
+  if (strategy.overlapChars >= strategy.targetChars) {
+    throw new Error("chunkStrategy.overlapChars must be less than targetChars");
+  }
+  return strategy;
 }
 
 function slug(value: string): string {
@@ -71,21 +115,24 @@ function paragraphs(section: Section): string[] {
   return [`## ${heading}`, ...blocks];
 }
 
-function splitSection(section: Section): string[] {
+function splitSection(
+  section: Section,
+  strategy: Required<BaseballRuleChunkStrategy>,
+): string[] {
   const chunks: string[] = [];
   let current = "";
   for (const block of paragraphs(section)) {
     const candidate = current ? `${current}\n\n${block}` : block;
-    if (candidate.length <= TARGET_CHARS || current.length === 0) {
+    if (candidate.length <= strategy.targetChars || current.length === 0) {
       current = candidate;
       continue;
     }
     chunks.push(current);
-    const overlap = current.slice(Math.max(0, current.length - OVERLAP_CHARS));
+    const overlap = current.slice(Math.max(0, current.length - strategy.overlapChars));
     current = `${overlap}\n\n${block}`;
-    if (current.length > MAX_CHARS) {
-      chunks.push(current.slice(0, MAX_CHARS));
-      current = current.slice(Math.max(0, current.length - OVERLAP_CHARS));
+    if (current.length > strategy.maxChars) {
+      chunks.push(current.slice(0, strategy.maxChars));
+      current = current.slice(Math.max(0, current.length - strategy.overlapChars));
     }
   }
   if (current.trim()) chunks.push(current);
@@ -120,9 +167,10 @@ export function chunkMarkdownDocument(
   markdown: string,
   embeddings: readonly number[][],
   now = Date.now(),
+  strategyInput?: BaseballRuleChunkStrategy,
 ): BaseballRuleChunk[] {
   const docId = stableDocId(document);
-  const rawChunks = rawMarkdownChunks(document, markdown);
+  const rawChunks = rawMarkdownChunks(document, markdown, strategyInput);
   if (rawChunks.length !== embeddings.length) {
     throw new Error("embedding count must match chunk count");
   }
@@ -165,15 +213,17 @@ export function chunkMarkdownDocument(
 export function countMarkdownChunks(
   document: BaseballRuleDocumentInput,
   markdown: string,
+  strategy?: BaseballRuleChunkStrategy,
 ): number {
-  return rawMarkdownChunks(document, markdown).length;
+  return rawMarkdownChunks(document, markdown, strategy).length;
 }
 
 export function markdownChunkTexts(
   document: BaseballRuleDocumentInput,
   markdown: string,
+  strategy?: BaseballRuleChunkStrategy,
 ): string[] {
-  return rawMarkdownChunks(document, markdown).map((chunk) =>
+  return rawMarkdownChunks(document, markdown, strategy).map((chunk) =>
     [
       document.title,
       document.source,
@@ -183,12 +233,42 @@ export function markdownChunkTexts(
   );
 }
 
+export function previewMarkdownChunks(
+  document: BaseballRuleDocumentInput,
+  markdown: string,
+  strategy?: BaseballRuleChunkStrategy,
+): BaseballRuleChunkStats {
+  const lengths = rawMarkdownChunks(document, markdown, strategy)
+    .map((chunk) => chunk.content.length)
+    .sort((left, right) => left - right);
+  if (lengths.length === 0) {
+    return {
+      chunks: 0,
+      minChars: 0,
+      avgChars: 0,
+      maxChars: 0,
+      p95Chars: 0,
+    };
+  }
+  const total = lengths.reduce((sum, value) => sum + value, 0);
+  const p95Index = Math.max(0, Math.ceil(lengths.length * 0.95) - 1);
+  return {
+    chunks: lengths.length,
+    minChars: lengths[0]!,
+    avgChars: Math.round(total / lengths.length),
+    maxChars: lengths[lengths.length - 1]!,
+    p95Chars: lengths[p95Index]!,
+  };
+}
+
 function rawMarkdownChunks(
   document: BaseballRuleDocumentInput,
   markdown: string,
+  strategyInput?: BaseballRuleChunkStrategy,
 ): Array<{ section: Section; content: string }> {
+  const strategy = normalizeChunkStrategy(strategyInput);
   return extractSections(markdown, document.title).flatMap((section) =>
-    splitSection(section).map((content) => ({
+    splitSection(section, strategy).map((content) => ({
       section,
       content: content.trim(),
     })),

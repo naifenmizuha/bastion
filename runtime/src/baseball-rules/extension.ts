@@ -2,9 +2,11 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 import { BaseballRuleError, BaseballRuleService } from "./service.ts";
 import {
+  BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
   BASEBALL_RULE_DETAILS_KIND,
   BASEBALL_RULE_INGEST_TOOL_NAME,
   BASEBALL_RULE_QUERY_TOOL_NAME,
+  type BaseballRuleChunkPreviewParams,
   type BaseballRuleIngestParams,
   type BaseballRuleQueryParams,
   type BaseballRuleToolDetails,
@@ -27,10 +29,38 @@ const DocumentSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const ChunkStrategySchema = Type.Object(
+  {
+    targetChars: Type.Optional(Type.Integer({ minimum: 1 })),
+    maxChars: Type.Optional(Type.Integer({ minimum: 1 })),
+    overlapChars: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
+const NamedChunkStrategySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+    targetChars: Type.Optional(Type.Integer({ minimum: 1 })),
+    maxChars: Type.Optional(Type.Integer({ minimum: 1 })),
+    overlapChars: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
 export const BaseballRuleIngestParameters: TSchema = Type.Object(
   {
     documents: Type.Array(DocumentSchema, { minItems: 1, maxItems: 20 }),
     replaceDocument: Type.Optional(Type.Boolean()),
+    chunkStrategy: Type.Optional(ChunkStrategySchema),
+  },
+  { additionalProperties: false },
+);
+
+export const BaseballRuleChunkPreviewParameters: TSchema = Type.Object(
+  {
+    documents: Type.Array(DocumentSchema, { minItems: 1, maxItems: 20 }),
+    strategies: Type.Array(NamedChunkStrategySchema, { minItems: 1, maxItems: 12 }),
   },
   { additionalProperties: false },
 );
@@ -136,7 +166,7 @@ export function createBaseballRulesExtension(
       name: BASEBALL_RULE_INGEST_TOOL_NAME,
       label: "Baseball Rule Ingest",
       description:
-        "Ingest authoritative English baseball rule Markdown into the local hybrid rule index. Provide pasted Markdown or a safe path under the workspace/agent directory.",
+        "Ingest authoritative English baseball rule Markdown into the local hybrid rule index. Provide pasted Markdown or a safe path under the workspace/agent directory. Pass chunkStrategy after previewing candidate chunk parameters.",
       promptSnippet: "Ingest authoritative baseball rule Markdown",
       parameters: BaseballRuleIngestParameters,
       executionMode: "sequential",
@@ -151,6 +181,29 @@ export function createBaseballRulesExtension(
           );
         } catch (error) {
           return result(errorDetails("ingest", error));
+        }
+      },
+    });
+
+    pi.registerTool({
+      name: BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
+      label: "Baseball Rule Chunk Preview",
+      description:
+        "Preview deterministic heading-aware chunk statistics for authoritative baseball rule Markdown without embedding or writing the local rule index. Use this before ingest to compare candidate chunkStrategy values.",
+      promptSnippet: "Preview baseball rule Markdown chunking before ingest",
+      parameters: BaseballRuleChunkPreviewParameters,
+      executionMode: "sequential",
+
+      async execute(_toolCallId, rawParams) {
+        try {
+          return result(
+            details(
+              "chunk_preview",
+              await service.previewChunks(rawParams as BaseballRuleChunkPreviewParams),
+            ),
+          );
+        } catch (error) {
+          return result(errorDetails("chunk_preview", error));
         }
       },
     });
@@ -182,6 +235,7 @@ export function createBaseballRulesExtension(
     pi.on("tool_result", (event) => {
       if (
         event.toolName !== BASEBALL_RULE_INGEST_TOOL_NAME &&
+        event.toolName !== BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME &&
         event.toolName !== BASEBALL_RULE_QUERY_TOOL_NAME
       ) {
         return;

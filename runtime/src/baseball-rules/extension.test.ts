@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
   BASEBALL_RULE_INGEST_TOOL_NAME,
   BASEBALL_RULE_QUERY_TOOL_NAME,
   type BaseballRuleStore,
   type EmbeddingProvider,
 } from "./types.ts";
 import {
+  BaseballRuleChunkPreviewParameters,
   BaseballRuleIngestParameters,
   BaseballRuleQueryParameters,
   createBaseballRulesExtension,
@@ -32,6 +34,7 @@ describe("baseball rules extension", () => {
     } as never);
 
     assert.ok(tools.has(BASEBALL_RULE_INGEST_TOOL_NAME));
+    assert.ok(tools.has(BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME));
     assert.ok(tools.has(BASEBALL_RULE_QUERY_TOOL_NAME));
     assert.equal(
       (BaseballRuleQueryParameters as unknown as { properties: Record<string, unknown> })
@@ -40,7 +43,12 @@ describe("baseball rules extension", () => {
     );
     assert.equal(
       (BaseballRuleIngestParameters as unknown as { properties: Record<string, unknown> })
-        .properties.documents !== undefined,
+        .properties.chunkStrategy !== undefined,
+      true,
+    );
+    assert.equal(
+      (BaseballRuleChunkPreviewParameters as unknown as { properties: Record<string, unknown> })
+        .properties.strategies !== undefined,
       true,
     );
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "知识库录入"
+  short_description: "Official baseball rule KB ingest and retrieval"
+  default_prompt: "Use $knowledge-base-ingest to ingest official baseball rule Markdown into the local knowledge base."

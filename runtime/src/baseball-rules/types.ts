@@ -1,5 +1,6 @@
-export const BASEBALL_RULE_INGEST_TOOL_NAME = "baseball_rule_ingest";
-export const BASEBALL_RULE_QUERY_TOOL_NAME = "baseball_rule_query";
+export const BASEBALL_RULE_INGEST_TOOL_NAME = "ingest";
+export const BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME = "chunk_preview";
+export const BASEBALL_RULE_QUERY_TOOL_NAME = "retrieve";
 export const BASEBALL_RULE_DETAILS_KIND = "baseball_rules";
 
 export interface BaseballRuleDocumentInput {
@@ -17,6 +18,38 @@ export interface BaseballRuleDocumentInput {
 export interface BaseballRuleIngestParams {
   documents: BaseballRuleDocumentInput[];
   replaceDocument?: boolean;
+  chunkStrategy?: BaseballRuleChunkStrategy;
+}
+
+export interface BaseballRuleChunkStrategy {
+  targetChars?: number;
+  maxChars?: number;
+  overlapChars?: number;
+}
+
+export interface BaseballRuleNamedChunkStrategy extends BaseballRuleChunkStrategy {
+  name?: string;
+}
+
+export interface BaseballRuleChunkPreviewParams {
+  documents: BaseballRuleDocumentInput[];
+  strategies: BaseballRuleNamedChunkStrategy[];
+}
+
+export interface BaseballRuleChunkPreviewData {
+  documents: Array<{
+    title: string;
+    source: string;
+    docId: string;
+    strategies: Array<{
+      name: string;
+      chunks: number;
+      minChars: number;
+      avgChars: number;
+      maxChars: number;
+      p95Chars: number;
+    }>;
+  }>;
 }
 
 export interface BaseballRuleCaseFacts {
@@ -123,7 +156,7 @@ export interface BaseballRuleQueryData {
 export interface BaseballRuleToolDetails {
   kind: typeof BASEBALL_RULE_DETAILS_KIND;
   ok: boolean;
-  action: "ingest" | "query";
+  action: "ingest" | "query" | "chunk_preview";
   data?: unknown;
   error?: {
     code: string;

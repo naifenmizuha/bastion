@@ -1,13 +1,18 @@
 import { readFileSync } from "node:fs";
-import { resolve, relative } from "node:path";
+import { isAbsolute, resolve, relative } from "node:path";
 import {
   chunkMarkdownDocument,
   countMarkdownChunks,
   markdownChunkTexts,
+  normalizeChunkStrategy,
+  previewMarkdownChunks,
   stableDocId,
 } from "./markdown.ts";
 import type {
   BaseballRuleChunk,
+  BaseballRuleChunkPreviewData,
+  BaseballRuleChunkPreviewParams,
+  BaseballRuleChunkStrategy,
   BaseballRuleEvidence,
   BaseballRuleIngestParams,
   BaseballRuleQueryData,
@@ -98,7 +103,7 @@ function safePath(path: string, roots: readonly string[]): string {
   const resolved = resolve(path);
   const allowed = roots.some((root) => {
     const rel = relative(resolve(root), resolved);
-    return rel === "" || (!rel.startsWith("..") && !resolve(rel).startsWith("/"));
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
   });
   if (!allowed) {
     throw new BaseballRuleError(
@@ -111,13 +116,17 @@ function safePath(path: string, roots: readonly string[]): string {
 }
 
 function validateIngest(input: BaseballRuleIngestParams): void {
-  if (!Array.isArray(input.documents) || input.documents.length === 0) {
+  validateRuleDocuments(input.documents);
+}
+
+function validateRuleDocuments(documents: unknown): asserts documents is BaseballRuleIngestParams["documents"] {
+  if (!Array.isArray(documents) || documents.length === 0) {
     throw new BaseballRuleError(
       "INVALID_INPUT",
       "documents must contain at least one rule document",
     );
   }
-  for (const [index, document] of input.documents.entries()) {
+  for (const [index, document] of documents.entries()) {
     if (!nonEmptyString(document.title) || !nonEmptyString(document.source)) {
       throw new BaseballRuleError(
         "INVALID_INPUT",
@@ -135,6 +144,38 @@ function validateIngest(input: BaseballRuleIngestParams): void {
       );
     }
   }
+}
+
+function validateChunkPreview(input: BaseballRuleChunkPreviewParams): void {
+  validateRuleDocuments(input.documents);
+  if (!Array.isArray(input.strategies) || input.strategies.length === 0) {
+    throw new BaseballRuleError(
+      "INVALID_INPUT",
+      "strategies must contain at least one chunk strategy",
+    );
+  }
+}
+
+function normalizeRuleChunkStrategy(
+  input: BaseballRuleChunkStrategy | undefined,
+): Required<BaseballRuleChunkStrategy> {
+  try {
+    return normalizeChunkStrategy(input);
+  } catch (error) {
+    throw new BaseballRuleError(
+      "INVALID_INPUT",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+function readRuleMarkdown(
+  document: BaseballRuleIngestParams["documents"][number],
+  roots: readonly string[],
+): string {
+  return nonEmptyString(document.markdown)
+    ? document.markdown
+    : readFileSync(safePath(document.path!, roots), "utf8");
 }
 
 function excerpt(content: string): string {
@@ -341,12 +382,11 @@ export class BaseballRuleService {
   }> {
     validateIngest(params);
     const replace = params.replaceDocument ?? true;
+    const chunkStrategy = normalizeRuleChunkStrategy(params.chunkStrategy);
     const documents = [];
     for (const document of params.documents) {
-      const markdown = nonEmptyString(document.markdown)
-        ? document.markdown
-        : readFileSync(safePath(document.path!, this.options.safeRoots), "utf8");
-      const chunkCount = countMarkdownChunks(document, markdown);
+      const markdown = readRuleMarkdown(document, this.options.safeRoots);
+      const chunkCount = countMarkdownChunks(document, markdown, chunkStrategy);
       if (chunkCount === 0) {
         throw new BaseballRuleError(
           "EMPTY_DOCUMENT",
@@ -356,13 +396,14 @@ export class BaseballRuleService {
       }
       const embeddings = await embedTexts(
         this.options.embedder,
-        markdownChunkTexts(document, markdown),
+        markdownChunkTexts(document, markdown, chunkStrategy),
       );
       const chunks = chunkMarkdownDocument(
         document,
         markdown,
         embeddings,
         this.options.now?.() ?? Date.now(),
+        chunkStrategy,
       );
       const docId = stableDocId(document);
       if (replace) {
@@ -379,6 +420,32 @@ export class BaseballRuleService {
     }
     this.options.store.optimize();
     return { documents };
+  }
+
+  async previewChunks(
+    params: BaseballRuleChunkPreviewParams,
+  ): Promise<BaseballRuleChunkPreviewData> {
+    validateChunkPreview(params);
+    return {
+      documents: params.documents.map((document) => {
+        const markdown = readRuleMarkdown(document, this.options.safeRoots);
+        return {
+          title: document.title,
+          source: document.source,
+          docId: stableDocId(document),
+          strategies: params.strategies.map((strategy, index) => {
+            const normalized = normalizeRuleChunkStrategy(strategy);
+            const stats = previewMarkdownChunks(document, markdown, normalized);
+            return {
+              name: nonEmptyString(strategy.name)
+                ? strategy.name.trim()
+                : `strategy-${index + 1}`,
+              ...stats,
+            };
+          }),
+        };
+      }),
+    };
   }
 
   async query(params: BaseballRuleQueryParams): Promise<BaseballRuleQueryData> {

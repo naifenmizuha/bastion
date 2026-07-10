@@ -6,12 +6,13 @@ import { describe, it } from "node:test";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skillDir = join(runtimeRoot, "skills", "manage-bastion-team");
+const manageSkillDir = join(runtimeRoot, "skills", "manage-bastion-team");
+const knowledgeSkillDir = join(runtimeRoot, "skills", "knowledge-base-ingest");
 
 describe("manage-bastion-team skill", () => {
   it("loads without Pi diagnostics and keeps references valid", async () => {
     const result = loadSkillsFromDir({
-      dir: skillDir,
+      dir: manageSkillDir,
       source: "test",
     });
     assert.equal(result.diagnostics.length, 0);
@@ -20,9 +21,12 @@ describe("manage-bastion-team skill", () => {
       ["manage-bastion-team"],
     );
 
-    const content = await readFile(join(skillDir, "SKILL.md"), "utf8");
+    const content = await readFile(join(manageSkillDir, "SKILL.md"), "utf8");
     assert.ok(content.split(/\r?\n/).length <= 100);
     assert.match(content, /## CLI quick manual/);
+    assert.doesNotMatch(content, /Official baseball rules/);
+    assert.doesNotMatch(content, /chunk_preview/);
+    assert.doesNotMatch(content, /SiliconFlow/);
     assert.match(content, /"args":\["player","read","--name","张三"\]/);
     assert.match(content, /"args":\["report","write"\]/);
     assert.match(content, /"args":\["batch","read"\]/);
@@ -35,11 +39,11 @@ describe("manage-bastion-team skill", () => {
     assert.equal(links.length, 5);
     for (const link of links) {
       assert.ok(link);
-      await readFile(join(skillDir, link), "utf8");
+      await readFile(join(manageSkillDir, link), "utf8");
     }
 
     const players = await readFile(
-      join(skillDir, "references", "players-and-reports.md"),
+      join(manageSkillDir, "references", "players-and-reports.md"),
       "utf8",
     );
     assert.match(players, /## When to use/);
@@ -59,7 +63,7 @@ describe("manage-bastion-team skill", () => {
       "protocol-and-safety.md",
     ];
     for (const file of references) {
-      const content = await readFile(join(skillDir, "references", file), "utf8");
+      const content = await readFile(join(manageSkillDir, "references", file), "utf8");
       const lines = content.split(/\r?\n/).length;
       const limit = file === "games-and-analysis.md" ? 120 : 90;
       assert.ok(lines <= limit, `${file} has ${lines} lines`);
@@ -70,7 +74,7 @@ describe("manage-bastion-team skill", () => {
     }
 
     const games = await readFile(
-      join(skillDir, "references", "games-and-analysis.md"),
+      join(manageSkillDir, "references", "games-and-analysis.md"),
       "utf8",
     );
     assert.match(games, /prefer one `game write`/);
@@ -79,17 +83,41 @@ describe("manage-bastion-team skill", () => {
     assert.match(games, /`missing_required` means the fact is missing/);
 
     const lineups = await readFile(
-      join(skillDir, "references", "lineups.md"),
+      join(manageSkillDir, "references", "lineups.md"),
       "utf8",
     );
     assert.match(lineups, /`lineup write` only saves a candidate/);
     assert.match(lineups, /call `lineup accept --id ID`/);
 
     const protocol = await readFile(
-      join(skillDir, "references", "protocol-and-safety.md"),
+      join(manageSkillDir, "references", "protocol-and-safety.md"),
       "utf8",
     );
     assert.match(protocol, /On `USER_CANCELLED`, stop immediately/);
     assert.match(protocol, /Never query SQLite or fall back to shell commands/);
+  });
+});
+
+describe("knowledge-base-ingest skill", () => {
+  it("loads without Pi diagnostics and owns baseball rule ingestion guidance", async () => {
+    const result = loadSkillsFromDir({
+      dir: knowledgeSkillDir,
+      source: "test",
+    });
+    assert.equal(result.diagnostics.length, 0);
+    assert.deepEqual(
+      result.skills.map((skill) => skill.name),
+      ["knowledge-base-ingest"],
+    );
+
+    const content = await readFile(join(knowledgeSkillDir, "SKILL.md"), "utf8");
+    assert.ok(content.split(/\r?\n/).length <= 80);
+    assert.match(content, /# 知识库录入/);
+    assert.match(content, /`chunk_preview`/);
+    assert.match(content, /`ingest`/);
+    assert.match(content, /`retrieve`/);
+    assert.match(content, /EMBEDDING_URL=https:\/\/api\.siliconflow\.cn\/v1\/embeddings/);
+    assert.match(content, /EMBEDDING_MODEL=Qwen\/Qwen3-Embedding-8B/);
+    assert.match(content, /EMBEDDING_DIMENSION=4096/);
   });
 });

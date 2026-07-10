@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --import tsx src/main.ts",
     "pdf2md": "node --import tsx scripts/pdf2md.ts",
-    "test": "node --import tsx --test src/teamops/*.test.ts src/baseball-rules/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/skill.test.ts",
+    "test": "node --import tsx --test src/*.test.ts src/teamops/*.test.ts src/baseball-rules/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
