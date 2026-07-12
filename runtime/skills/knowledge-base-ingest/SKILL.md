@@ -5,14 +5,14 @@ description: "Use chunk_preview, ingest, and retrieve for official baseball rule
 
 # 知识库录入
 
-Use `chunk_preview`, `ingest`, and `retrieve` for official baseball rule
-documents and rule evidence.
+Use `chunk_preview`, `ingest`, and `retrieve` for official rule workflows.
 
 ## Official Baseball Rules
 
-For authoritative rule Markdown such as `material/rules.md`, preview chunking
-before ingesting. Read enough Markdown to judge heading depth, long sections,
-tables, and explicit rule subsections.
+For large authoritative Markdown such as `material/rules.md`, do not read the
+whole file to inspect its structure. `chunk_preview` performs document
+inspection internally and returns bounded diagnostics and samples. Read only a
+specific range when a diagnostic requires human inspection.
 
 Call `chunk_preview` with these candidate strategies:
 
@@ -20,13 +20,18 @@ Call `chunk_preview` with these candidate strategies:
 - `balanced=1200/2000/200`
 - `broad=1600/2400/250`
 
-Choose `balanced` by default, `fine` for many large chunks or dense
-subsections, and `broad` when chunk count is high and sections are short. The
-`balanced=1200/2000/200` strategy has been verified for the cleaned
-`material/rules.md` WBSC rules document, producing about 507 chunks.
+Use this fixed workflow:
 
-Then call `ingest` with the selected `chunkStrategy`, `replaceDocument: true`,
-and stable metadata.
+1. Call `chunk_preview` with all candidates.
+2. Check `recommendedStrategy`, `qualityScore`, and `diagnostics`.
+3. Require zero oversized chunks. Treat isolated headings and a high
+   tiny-chunk ratio as diagnostics to investigate, not automatic blockers.
+4. Call `ingest` with the recommended parameters, `replaceDocument: true`,
+   and stable metadata. Use returned hashes only for audit.
+5. Run representative `retrieve` queries to verify the new index.
+
+Do not choose from chunk count alone. Prefer the recommendation unless its
+samples expose a semantic split that needs a targeted strategy change.
 
 ## Embeddings
 
@@ -37,7 +42,6 @@ the runtime after changing embedding configuration; existing shell variables
 override values from env files.
 
 For SiliconFlow use:
-
 - `EMBEDDING_URL=https://api.siliconflow.cn/v1/embeddings`
 - `EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B`
 - `EMBEDDING_DIMENSION=4096`
@@ -54,6 +58,18 @@ process.
 
 ## Retrieval
 
-For rule questions, call `retrieve` with structured case facts, English
-rule-term queries, and normalized concepts. Never pass only the raw Chinese
-question.
+For rule questions, call `retrieve` with the raw situation, English rule-term
+queries, and normalized concepts. Never pass only the raw Chinese question.
+The tool retrieves evidence; it does not decide whether the known facts support
+a ruling.
+
+Do not silently add facts such as fair/foul status, prior fielder contact,
+intent, fence clearance, or venue ground rules. If a material fact is absent,
+ask the user or give an explicit "if ... then ..." answer. If retrieval returns
+`insufficient_evidence`, broaden the queries or say that official support was
+not found; do not invent a ruling.
+
+Keep answers compact: conclusion, conditions, material exception, and rule
+reference. Clearly label whether a statement is direct rule text, a
+translation, or an inference from multiple rules. Do not present paraphrases as
+quotes or make absolute claims beyond the evidence.

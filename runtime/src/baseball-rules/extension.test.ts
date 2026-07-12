@@ -36,11 +36,16 @@ describe("baseball rules extension", () => {
     assert.ok(tools.has(BASEBALL_RULE_INGEST_TOOL_NAME));
     assert.ok(tools.has(BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME));
     assert.ok(tools.has(BASEBALL_RULE_QUERY_TOOL_NAME));
-    assert.equal(
+    const queryProperties =
       (BaseballRuleQueryParameters as unknown as { properties: Record<string, unknown> })
-        .properties.caseFacts !== undefined,
-      true,
-    );
+        .properties;
+    const ingestProperties =
+      (BaseballRuleIngestParameters as unknown as { properties: Record<string, unknown> })
+        .properties;
+    assert.equal(queryProperties.caseFacts, undefined);
+    assert.equal(queryProperties.assumptions, undefined);
+    assert.equal(queryProperties.unknownFacts, undefined);
+    assert.equal(ingestProperties.expectedContentHash, undefined);
     assert.equal(
       (BaseballRuleIngestParameters as unknown as { properties: Record<string, unknown> })
         .properties.chunkStrategy !== undefined,
@@ -54,7 +59,6 @@ describe("baseball rules extension", () => {
 
     const failed = await tools.get(BASEBALL_RULE_QUERY_TOOL_NAME)!.execute("q1", {
       rawSituation: "一出局一二垒有人。",
-      caseFacts: {},
       englishQueries: [],
       concepts: [],
     });

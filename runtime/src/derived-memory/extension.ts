@@ -20,7 +20,7 @@ const DependencySchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const DerivedMemoryParameters: TSchema = Type.Union([
+const DerivedMemoryActionParameters = Type.Union([
   Type.Object(
     {
       action: Type.Literal("save"),
@@ -82,6 +82,15 @@ export const DerivedMemoryParameters: TSchema = Type.Union([
     { additionalProperties: false },
   ),
 ]);
+
+// Some OpenAI-compatible providers (including DeepSeek) reject tool schemas
+// whose root only contains `anyOf`. Every tool parameter schema must advertise
+// an object at the top level, while the union continues to enforce the
+// action-specific fields.
+export const DerivedMemoryParameters: TSchema = {
+  ...DerivedMemoryActionParameters,
+  type: "object",
+};
 
 type DerivedMemoryParams =
   | ({ action: "save" } & SaveDerivedMemoryInput)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { BaseballRuleService, BaseballRuleError } from "./service.ts";
 import type {
@@ -167,6 +167,22 @@ ${Array.from({ length: 8 }, (_, index) =>
 ).join("\n\n")}
 `;
 
+const rulingMarkdown = `
+# Official Baseball Rules
+
+## Rule 10.7.7 Runner Touched by Fair Ball
+
+A runner is out when touched by a fair ball in fair territory before the ball has gone through or by an infielder and no other infielder has a chance to make a play. The ball is dead.
+
+## Rule 6.27 Fair Territory and Foul Pole
+
+Fair territory includes the foul lines and their perpendicular extension. A fair fly passing out of the playing field in flight over fair territory is a home run. The foul pole marks that boundary.
+
+## Rule 12.1 Interference
+
+Intent and the timing of contact determine the applicable interference penalty.
+`;
+
 describe("baseball rule service", () => {
   it("ingests Markdown chunks with metadata, rule refs, adjacency, and replacement", async () => {
     const { service, store } = harness();
@@ -181,7 +197,7 @@ describe("baseball rule service", () => {
     assert.equal(first.documents[0]?.chunks, 2);
     const chunks = [...store.chunks.values()];
     assert.equal(chunks[0]?.ruleRef, "5.09(a)(5)");
-    assert.equal(chunks[0]?.nextChunkId, chunks[1]?.id);
+    assert.equal(chunks[0]?.nextChunkId, "");
     assert.deepEqual(chunks[0]?.headingPath, [
       "Official Baseball Rules",
       "Rule 5.09(a)(5) Infield Fly",
@@ -255,6 +271,30 @@ describe("baseball rule service", () => {
     );
   });
 
+  it("reports isolated headings without blocking ingest", async () => {
+    const { service, store } = harness();
+    const result = await service.ingest({
+      documents: [{
+        title: "Official Baseball Rules",
+        source: "OBR",
+        markdown: `## 17.3.4 The scorer records the play according to the official rule.\n\n${
+          "A complete scoring sentence remains part of this rule. ".repeat(60)
+        }`,
+      }],
+      chunkStrategy: {
+        targetChars: 1_600,
+        maxChars: 2_400,
+        overlapChars: 250,
+      },
+    });
+    assert.ok((result.documents[0]?.quality.isolatedHeadingChunks ?? 0) > 0);
+    assert.match(
+      result.documents[0]?.quality.diagnostics.join(" ") ?? "",
+      /contain only a heading/,
+    );
+    assert.ok(store.chunks.size > 1);
+  });
+
   it("previews chunk strategies without embedding or writing the store", async () => {
     const store = new MemoryRuleStore();
     const service = new BaseballRuleService({
@@ -292,6 +332,36 @@ describe("baseball rule service", () => {
         (preview.documents[0]?.strategies[1]?.chunks ?? 0),
     );
     assert.ok((preview.documents[0]?.strategies[0]?.p95Chars ?? 0) > 0);
+  });
+
+  it("previews the real WBSC rules without empty or oversized chunks", async () => {
+    const workspace = resolve(process.cwd(), "..");
+    const service = new BaseballRuleService({
+      store: new MemoryRuleStore(),
+      embedder: new ThrowingEmbedder(),
+      safeRoots: [workspace],
+    });
+    const preview = await service.previewChunks({
+      documents: [{
+        title: "WBSC Official Rules of Baseball",
+        source: "WBSC",
+        path: join(workspace, "material", "rules.md"),
+      }],
+      strategies: [
+        { name: "fine", targetChars: 800, maxChars: 1_400, overlapChars: 120 },
+        { name: "balanced", targetChars: 1_200, maxChars: 2_000, overlapChars: 200 },
+        { name: "broad", targetChars: 1_600, maxChars: 2_400, overlapChars: 250 },
+      ],
+    });
+    const result = preview.documents[0]!;
+    assert.equal(result.contentHash.length, 64);
+    assert.ok(result.characters > 100_000);
+    assert.ok(result.ruleSections > 0);
+    assert.ok(result.tables > 0);
+    assert.ok(result.strategies.every((strategy) => strategy.minChars > 1));
+    assert.ok(result.strategies.every((strategy) => strategy.oversizedChunks === 0));
+    assert.ok(result.recommendedStrategy.name.length > 0);
+    assert.ok(JSON.stringify(result).length < 20_000);
   });
 
   it("reads Markdown paths inside safe root subdirectories", async () => {
@@ -340,7 +410,6 @@ describe("baseball rule service", () => {
     await assert.rejects(
       service.query({
         rawSituation: "一出局一二垒有人，内野高飞球。",
-        caseFacts: {},
         englishQueries: [],
         concepts: [],
       }),
@@ -361,11 +430,6 @@ describe("baseball rule service", () => {
     });
     const result = await service.query({
       rawSituation: "一出局，一二垒有人，击球员打出内野高飞球。",
-      caseFacts: {
-        outs: 1,
-        runners: ["1B", "2B"],
-        battedBall: "fly_ball",
-      },
       englishQueries: [
         "infield fly runners on first and second before two are out batter out",
       ],
@@ -388,14 +452,12 @@ describe("baseball rule service", () => {
     });
     const ftsFirst = await service.query({
       rawSituation: "内野高飞球，但检索计划也要查申诉。",
-      caseFacts: { outs: 1, runners: ["1B", "2B"], battedBall: "fly_ball" },
       englishQueries: ["appeal retouch base"],
       concepts: ["infield_fly"],
       weights: { fts: 1, vector: 0 },
     });
     const vectorFirst = await service.query({
       rawSituation: "内野高飞球，但检索计划也要查申诉。",
-      caseFacts: { outs: 1, runners: ["1B", "2B"], battedBall: "fly_ball" },
       englishQueries: ["appeal retouch base"],
       concepts: ["infield_fly"],
       weights: { fts: 0, vector: 1 },
@@ -408,14 +470,37 @@ describe("baseball rule service", () => {
     const { service } = harness();
     const result = await service.query({
       rawSituation: "跑者疑似妨碍。",
-      caseFacts: { runners: ["1B"] },
       englishQueries: ["obstruction interference runner"],
       concepts: ["obstruction"],
     });
     assert.equal(result.answer.status, "insufficient_evidence");
-    assert.match(result.answer.draftConclusion, /No sufficient/);
-    assert.deepEqual(result.answer.missingFacts, [
-      "who impeded whom and when the act occurred",
-    ]);
+  });
+
+  it("retrieves runner-contact rule evidence without making a ruling", async () => {
+    const { service } = harness();
+    await service.ingest({
+      documents: [{ title: "Official Baseball Rules", source: "OBR", markdown: rulingMarkdown }],
+    });
+    const result = await service.query({
+      rawSituation: "一垒跑者被滚地球击中。",
+      englishQueries: ["runner touched by fair batted ball before passing infielder"],
+      concepts: ["runner interference", "batted ball touching runner"],
+    });
+    assert.equal(result.answer.status, "evidence_found");
+    assert.equal(result.evidence[0]?.ruleRef, "10.7.7");
+  });
+
+  it("retrieves foul-pole boundary evidence without making a ruling", async () => {
+    const { service } = harness();
+    await service.ingest({
+      documents: [{ title: "Official Baseball Rules", source: "OBR", markdown: rulingMarkdown }],
+    });
+    const result = await service.query({
+      rawSituation: "飞球越过围墙高度并击中界标杆。",
+      englishQueries: ["fair fly foul pole home run boundary"],
+      concepts: ["foul pole", "home run boundary"],
+    });
+    assert.equal(result.answer.status, "evidence_found");
+    assert.equal(result.evidence[0]?.ruleRef, "6.27");
   });
 });

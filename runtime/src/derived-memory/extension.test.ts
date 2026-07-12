@@ -6,6 +6,7 @@ import { afterEach, describe, it } from "node:test";
 import { LocalChangeEventBus } from "./events.ts";
 import {
   createDerivedMemoryExtension,
+  DerivedMemoryParameters,
   type DerivedMemoryToolDetails,
 } from "./extension.ts";
 import { CliObservationLedger } from "./ledger.ts";
@@ -65,6 +66,15 @@ function recordReads(ledger: CliObservationLedger, bus: LocalChangeEventBus) {
 }
 
 describe("derived_memory extension", () => {
+  it("exposes an object-rooted schema for strict OpenAI-compatible providers", () => {
+    const schema = DerivedMemoryParameters as unknown as {
+      type?: string;
+      anyOf?: unknown[];
+    };
+    assert.equal(schema.type, "object");
+    assert.ok(Array.isArray(schema.anyOf));
+  });
+
   it("saves from verified reads, searches, reads, and forgets", async () => {
     const { store, ledger, changeEvents, tool } = harness();
     recordReads(ledger, changeEvents);

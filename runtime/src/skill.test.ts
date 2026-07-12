@@ -117,7 +117,13 @@ describe("knowledge-base-ingest skill", () => {
     assert.match(content, /`ingest`/);
     assert.match(content, /`retrieve`/);
     assert.match(content, /`balanced=1200\/2000\/200`/);
-    assert.match(content, /about 507 chunks/);
+    assert.match(content, /recommendedStrategy/);
+    assert.match(content, /not automatic blockers/);
+    assert.match(content, /raw situation/);
+    assert.match(content, /if \.\.\. then \.\.\./);
+    assert.match(content, /insufficient_evidence/);
+    assert.doesNotMatch(content, /expectedContentHash|caseFacts|assumptions|unknownFacts|answer\.readiness/);
+    assert.doesNotMatch(content, /about 507 chunks/);
     assert.match(content, /runtime\/\.env\.local/);
     assert.match(content, /EMBEDDING_URL=https:\/\/api\.siliconflow\.cn\/v1\/embeddings/);
     assert.match(content, /EMBEDDING_MODEL=Qwen\/Qwen3-Embedding-8B/);

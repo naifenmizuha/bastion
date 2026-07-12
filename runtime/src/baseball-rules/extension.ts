@@ -87,7 +87,6 @@ const WeightsSchema = Type.Object(
 export const BaseballRuleQueryParameters: TSchema = Type.Object(
   {
     rawSituation: Type.String({ minLength: 1, maxLength: 4_000 }),
-    caseFacts: Type.Object({}, { additionalProperties: true }),
     englishQueries: Type.Array(
       Type.String({ minLength: 1, maxLength: 512 }),
       { minItems: 1, maxItems: 12 },
@@ -166,7 +165,7 @@ export function createBaseballRulesExtension(
       name: BASEBALL_RULE_INGEST_TOOL_NAME,
       label: "Baseball Rule Ingest",
       description:
-        "Ingest authoritative English baseball rule Markdown into the local hybrid rule index. Provide pasted Markdown or a safe path under the workspace/agent directory. Pass chunkStrategy after previewing candidate chunk parameters.",
+        "Ingest authoritative English baseball rule Markdown into the local hybrid rule index. Preview first, pass its recommended chunkStrategy, and reject documents that fail chunk-quality checks.",
       promptSnippet: "Ingest authoritative baseball rule Markdown",
       parameters: BaseballRuleIngestParameters,
       executionMode: "sequential",
@@ -189,7 +188,7 @@ export function createBaseballRulesExtension(
       name: BASEBALL_RULE_CHUNK_PREVIEW_TOOL_NAME,
       label: "Baseball Rule Chunk Preview",
       description:
-        "Preview deterministic heading-aware chunk statistics for authoritative baseball rule Markdown without embedding or writing the local rule index. Use this before ingest to compare candidate chunkStrategy values.",
+        "Inspect authoritative rule Markdown and preview deterministic heading-aware chunk quality without embedding, writing the index, or reading the full document into model context. Returns diagnostics and a recommended strategy.",
       promptSnippet: "Preview baseball rule Markdown chunking before ingest",
       parameters: BaseballRuleChunkPreviewParameters,
       executionMode: "sequential",
@@ -212,7 +211,7 @@ export function createBaseballRulesExtension(
       name: BASEBALL_RULE_QUERY_TOOL_NAME,
       label: "Baseball Rule Query",
       description:
-        "Run agent-planned hybrid retrieval over ingested official baseball rules. Do not pass only the user's raw Chinese question; provide rawSituation, caseFacts, English rule-term queries, and normalized concepts.",
+        "Retrieve official baseball rule evidence using the raw situation, English rule-term queries, and normalized concepts. This tool finds evidence only; the agent must identify missing facts and formulate any conditional ruling.",
       promptSnippet:
         "Retrieve official baseball rule evidence from an agentic search plan",
       parameters: BaseballRuleQueryParameters,

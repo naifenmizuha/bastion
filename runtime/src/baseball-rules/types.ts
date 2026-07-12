@@ -41,26 +41,40 @@ export interface BaseballRuleChunkPreviewData {
     title: string;
     source: string;
     docId: string;
+    contentHash: string;
+    characters: number;
+    headingLevels: Record<string, number>;
+    tables: number;
+    ruleSections: number;
     strategies: Array<{
       name: string;
+      chunkStrategy: Required<BaseballRuleChunkStrategy>;
       chunks: number;
       minChars: number;
       avgChars: number;
       maxChars: number;
+      p50Chars: number;
       p95Chars: number;
+      tinyChunks: number;
+      tinyChunkRatio: number;
+      oversizedChunks: number;
+      isolatedHeadingChunks: number;
+      smallestSamples: BaseballRuleChunkSample[];
+      largestSamples: BaseballRuleChunkSample[];
+      qualityScore: number;
+      diagnostics: string[];
     }>;
+    recommendedStrategy: {
+      name: string;
+      chunkStrategy: Required<BaseballRuleChunkStrategy>;
+      reason: string;
+    };
   }>;
 }
 
-export interface BaseballRuleCaseFacts {
-  outs?: number;
-  runners?: string[];
-  battedBall?: string;
-  ballStatus?: string;
-  fielder?: string;
-  actions?: string[];
-  umpireCall?: string;
-  [key: string]: unknown;
+export interface BaseballRuleChunkSample {
+  characters: number;
+  headingPath: string[];
 }
 
 export interface BaseballRuleQueryWeights {
@@ -72,7 +86,6 @@ export interface BaseballRuleQueryWeights {
 
 export interface BaseballRuleQueryParams {
   rawSituation: string;
-  caseFacts: BaseballRuleCaseFacts;
   englishQueries: string[];
   concepts: string[];
   filters?: {
@@ -143,13 +156,10 @@ export interface BaseballRuleEvidence {
 
 export interface BaseballRuleQueryData {
   rawSituation: string;
-  caseFacts: BaseballRuleCaseFacts;
   concepts: string[];
   evidence: BaseballRuleEvidence[];
   answer: {
     status: "evidence_found" | "insufficient_evidence";
-    draftConclusion: string;
-    missingFacts: string[];
   };
 }
 

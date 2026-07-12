@@ -526,35 +526,81 @@ GLOSSARY
 
 # **RULE 6. DEFINITION OF TERMS**
 
-- **6.1 APPEAL:** The act of a manager, coach or player claiming a violation of the rules by the opposing team.
-- **6.2 BALK:** An illegal act by the pitcher with runners on base. Penalty is all runners advance one base.
-- **6.3 BALL:** A pitch that does not enter the strike zone in flight. If the pitch touches the ground and bounces through the strike zone it is a "ball."
-- **6.4 BASE:** One of four points that must be touched by a runner in order to score a run. More usually applied to the canvas bags except for the rubber home plate.
-- **6.5 BASE COACH:** A team member or a coach in uniform who is stationed in the coach's box at first and third.
-- **6.6 BASE ON BALLS:** Is an award of first base granted to the batter who while at bat receives four pitches outside the strike zone. Also awarded when the opposing manager signals to the home plate Umpire for an intentional walk.
-- **6.7 BATTER:** The offensive player positioned in the batter's box.
-- **6.8 BATTER-RUNNER:** A term that identifies the offensive player who has just finished his turn at bat and has either been put out or reached base safely before the play ends.
-- **6.9 BATTER'S BOX:** The area where the batter is positioned for his turn at bat.
-- **6.10 BATTERY:** The term used when referring to the pitcher and the catcher.
-- **6.11 BENCH OR DUGOUT:** The area reserved for each team personnel in proper uniform involved in the game.
+## **6.1 APPEAL**
 
-- **6.12 BULLPEN:** An area in foul territory or outside the playing field where substitute pitchers and catchers and other players warmup. It must have two regulation mounds and home plate. Facilities should be the same for both teams. Pitchers should warmup in the designated area not on the playing field.
-- **6.13 BUNT:** A batted ball not swung at, but intentionally met with the bat and tapped slowly within the infield. If the attempt to bunt results in a foul ball that is not legally caught, it is a strike.
-- **6.14 CALLED GAME**: A game in which for any reason the Umpire in chief terminates play.
-- **6.15 CATCH:** A ball in flight, is caught, when a fielder has held the ball long enough to show complete control. If a fielder makes a catch but drops the ball when he is attempting a throw, it is still considered a catch. If the fielder ends up with secure possession of the ball even if it has been touched or juggled by another fielder as long as it has not touched a member of the offensive team, or Umpire. This is considered a catch. It is not a catch if the fielder is touching dead ball territory when he makes the catch.
-- **6.16 CATCHER:** The fielder who takes his defensive position back of home plate.
-- **6.17 CATCHER'S BOX:** It is the area where the catcher shall stand until the pitcher delivers the pitch.
-- **6.18 COACH:** A team member in uniform appointed by the manager to perform such duties as the manager may designate, such as but not limited to acting as a base coach.
-- **6.19 DEAD BALL:** A ball out of play. A dead ball stops the game, and no plays can happen or take place until the Umpire resumes the game.
-- **6.20 DEFENCE OR DEFENSE:** The team or any player of the team on the field.
-- **6.21 DESIGNATED HITTER:** The designated hitter is a player who bats in place of the pitcher. The designated hitter does not play in the field. The designated hitter can also be the Pitcher/Designated Hitter (P/DH) and stay as a DH if removed from the mound. He can
+The act of a manager, coach or player claiming a violation of the rules by the opposing team.
+## **6.2 BALK**
+
+An illegal act by the pitcher with runners on base. Penalty is all runners advance one base.
+## **6.3 BALL**
+
+A pitch that does not enter the strike zone in flight. If the pitch touches the ground and bounces through the strike zone it is a "ball."
+## **6.4 BASE**
+
+One of four points that must be touched by a runner in order to score a run. More usually applied to the canvas bags except for the rubber home plate.
+## **6.5 BASE COACH**
+
+A team member or a coach in uniform who is stationed in the coach's box at first and third.
+## **6.6 BASE ON BALLS**
+
+Is an award of first base granted to the batter who while at bat receives four pitches outside the strike zone. Also awarded when the opposing manager signals to the home plate Umpire for an intentional walk.
+## **6.7 BATTER**
+
+The offensive player positioned in the batter's box.
+## **6.8 BATTER-RUNNER**
+
+A term that identifies the offensive player who has just finished his turn at bat and has either been put out or reached base safely before the play ends.
+## **6.9 BATTER'S BOX**
+
+The area where the batter is positioned for his turn at bat.
+## **6.10 BATTERY**
+
+The term used when referring to the pitcher and the catcher.
+## **6.11 BENCH OR DUGOUT**
+
+The area reserved for each team personnel in proper uniform involved in the game.
+
+## **6.12 BULLPEN**
+
+An area in foul territory or outside the playing field where substitute pitchers and catchers and other players warmup. It must have two regulation mounds and home plate. Facilities should be the same for both teams. Pitchers should warmup in the designated area not on the playing field.
+## **6.13 BUNT**
+
+A batted ball not swung at, but intentionally met with the bat and tapped slowly within the infield. If the attempt to bunt results in a foul ball that is not legally caught, it is a strike.
+## **6.14 CALLED GAME**
+
+A game in which for any reason the Umpire in chief terminates play.
+## **6.15 CATCH**
+
+A ball in flight, is caught, when a fielder has held the ball long enough to show complete control. If a fielder makes a catch but drops the ball when he is attempting a throw, it is still considered a catch. If the fielder ends up with secure possession of the ball even if it has been touched or juggled by another fielder as long as it has not touched a member of the offensive team, or Umpire. This is considered a catch. It is not a catch if the fielder is touching dead ball territory when he makes the catch.
+## **6.16 CATCHER**
+
+The fielder who takes his defensive position back of home plate.
+## **6.17 CATCHER'S BOX**
+
+It is the area where the catcher shall stand until the pitcher delivers the pitch.
+## **6.18 COACH**
+
+A team member in uniform appointed by the manager to perform such duties as the manager may designate, such as but not limited to acting as a base coach.
+## **6.19 DEAD BALL**
+
+A ball out of play. A dead ball stops the game, and no plays can happen or take place until the Umpire resumes the game.
+## **6.20 DEFENCE OR DEFENSE**
+
+The team or any player of the team on the field.
+## **6.21 DESIGNATED HITTER**
+
+The designated hitter is a player who bats in place of the pitcher. The designated hitter does not play in the field. The designated hitter can also be the Pitcher/Designated Hitter (P/DH) and stay as a DH if removed from the mound. He can
 
 
 
 also stay as the pitcher if he is pinch hit for. See Rule 9.3
 
-- **6.22 DISQUALIFIED PLAYER:** A player who no longer is eligible to participate in the game but has not been ejected. For example, injured player, or substituted player.
-- **6.23 DOUBLE PLAY**: A play by the defence in which two offensive players are put out as a result of continuous action, providing there is no error between putouts.
+## **6.22 DISQUALIFIED PLAYER**
+
+A player who no longer is eligible to participate in the game but has not been ejected. For example, injured player, or substituted player.
+## **6.23 DOUBLE PLAY**
+
+A play by the defence in which two offensive players are put out as a result of continuous action, providing there is no error between putouts.
 - 6.23.1 A force double play is one in which both putouts are force plays.
 - 6.23.2 A reverse double play is one in which the first out is a force play and the second out is made on a runner for whom the force is removed by reason of the first out.
 
@@ -562,59 +608,116 @@ Example: Runner on first base, one out. Batter grounds to first baseman who step
 
 Bases loaded, no outs. Batter grounds to third baseman who steps on the bag (one out) then throws to catcher for the second out (tag play).
 
-- **6.24 DOUBLEHEADER:** Two regularly scheduled or rescheduled games, played in immediate succession.
-- **6.25 EJECTION:** The immediate removal of a player, manager, or team personnel from any further participation from the current game. The game officials have the authority to eject a player, manager, or team personnel for misconduct or unsportsmanlike action.
-- **6.26 FAIR BALL:** A fair ball is a legally batted ball that:
-- 6.26.1 Settles on fair ground between home plate and first base or between home plate and third base.
-- 6.26.2 Is on or over fair ground when bounding to the outfield past first or third base.
-- 6.26.3 First falls on fair ground on or beyond first or third base.
-- 6.26.4 First touches a player, Umpire, or any piece of equipment while
+## **6.24 DOUBLEHEADER**
+
+Two regularly scheduled or rescheduled games, played in immediate succession.
+## **6.25 EJECTION**
+
+The immediate removal of a player, manager, or team personnel from any further participation from the current game. The game officials have the authority to eject a player, manager, or team personnel for misconduct or unsportsmanlike action.
+## **6.26 FAIR BALL**
+
+A fair ball is a legally batted ball that:
+
+### 6.26.1 Settles on fair ground between home plate and first base or between home plate and third base.
+
+### 6.26.2 Is on or over fair ground when bounding to the outfield past first or third base.
+
+### 6.26.3 First falls on fair ground on or beyond first or third base.
+
+### 6.26.4 First touches a player, Umpire, or any piece of equipment while
 
 over fair territory. A batted ball that hits the pitcher's rubber and rebounds untouched to foul territory between first and home or third and home is a foul ball.
 
 Note: A fair fly must be judged according to the relative position of the ball and the foul line and not as to whether the fielder is on a fair or foul ground at the time the ball is first touched.
 
-- 6.26.5 Touches a base in fair territory unless previously touched by a fielder or runner while the ball was in foul territory.
-- 6.26.6 Passes out of the playing field in flight while over fair territory.
+### 6.26.5 Touches a base in fair territory unless previously touched by a fielder or runner while the ball was in foul territory.
+
+### 6.26.6 Passes out of the playing field in flight while over fair territory.
 
 Note: If a batted ball hits the top of the fence while in fair territory and then bounces over the fence, it is a home run.
 
-- **6.27 FAIR TERRITORY:** The part of the playing field within and including the first and third base lines from home plate to the bottom of the playing field fence and perpendicularly upwards. Both foul lines are in fair territory.
-- **6.28 FIELDER:** Is any defensive player.
-- **6.29 FIELDER'S CHOICE:** The act of a fielder who, in playing a fair ground ball, attempts to or does retire another base runner rather than throwing to first base to put out the batter-runner.
-- **6.30 FLAGRANT COLLISION:** A collision between a base runner and a fielder in which the runner maliciously attempts to dislodge the ball.
-- **6.31 FLY BALL:** A batted ball that goes high in the air directly off the bat.
-- **6.32 FORCE PLAY:** A play in which a runner legally loses the right to occupy a base by reason of the batter becoming a runner.
+## **6.27 FAIR TERRITORY**
+
+The part of the playing field within and including the first and third base lines from home plate to the bottom of the playing field fence and perpendicularly upwards. Both foul lines are in fair territory.
+## **6.28 FIELDER**
+
+Is any defensive player.
+## **6.29 FIELDER'S CHOICE**
+
+The act of a fielder who, in playing a fair ground ball, attempts to or does retire another base runner rather than throwing to first base to put out the batter-runner.
+## **6.30 FLAGRANT COLLISION**
+
+A collision between a base runner and a fielder in which the runner maliciously attempts to dislodge the ball.
+## **6.31 FLY BALL**
+
+A batted ball that goes high in the air directly off the bat.
+## **6.32 FORCE PLAY**
+
+A play in which a runner legally loses the right to occupy a base by reason of the batter becoming a runner.
 
 Note: On a dropped third strike, when the batter is not entitled to run to first base, any advancing runner must be tagged to be declared out.
 
-**6.33 FORFEITED GAME:** A game declared ended and awarded to the offended team by the Umpire in chief.
+## **6.33 FORFEITED GAME**
+
+A game declared ended and awarded to the offended team by the Umpire in chief.
 
 
 
-- **6.34 FOUL BALL:** A foul ball is a legally batted ball that:
-- 6.34.1 Settles on foul ground between home plate and first base or between home plate and third base.
-- 6.34.2 Bounds past first or third base over foul ground.
-- 6.34.3 First falls on foul ground beyond first or third base.
-- 6.34.4 While on or over foul ground, touches an Umpire, a player, or any object other than the playing surface.
-- 6.34.5 Hits the batter in the batter's box or hits the dirt or home plate and then hits the batter or the bat, which is in the hand or hands of the batter, while in the batter's box.
-- 6.34.6 Hits the pitcher's rubber and rebounds into foul territory between home plate and first or third base, without touching a fielder.
+## **6.34 FOUL BALL**
+
+A foul ball is a legally batted ball that:
+
+### 6.34.1 Settles on foul ground between home plate and first base or between home plate and third base.
+
+### 6.34.2 Bounds past first or third base over foul ground.
+
+### 6.34.3 First falls on foul ground beyond first or third base.
+
+### 6.34.4 While on or over foul ground, touches an Umpire, a player, or any object other than the playing surface.
+
+### 6.34.5 Hits the batter in the batter's box or hits the dirt or home plate and then hits the batter or the bat, which is in the hand or hands of the batter, while in the batter's box.
+
+### 6.34.6 Hits the pitcher's rubber and rebounds into foul territory between home plate and first or third base, without touching a fielder.
 
 Note: A foul fly shall be judged according to the relative position of the ball and the foul line, including the foul pole, and not whether the fielder is on foul or fair territory at the time he touches the ball.
 
-- **6.35 FOUL TERRITORY:** That part of the playing field outside the first and third base lines extended to the fence and perpendicularly upwards.
-- **6.36 FOUL TIP:** A batted ball that goes sharp and directly from the bat to the catcher and is caught legally by the catcher. It is a strike, and the ball is in play.
-- **6.37 GROUND BALL:** A batted ball that rolls or bounces close to the ground.
-- **6.38 HALF SWING:** An attempt by the batter to stop the forward motion of the bat while swinging, which puts the batter in jeopardy of a strike being called. The half swing shall be called a strike if the barrel head of the bat passes the batter's front hip. This does not apply to a bunt attempt when the batter pulls the bat back.
-- **6.39 HOME TEAM:** The team on whose field the game is played. If the game is played on neutral grounds, the home team shall be determined by mutual agreement.
+## **6.35 FOUL TERRITORY**
 
-- **6.40 ILLEGAL:** Anything contrary to these rules.
-- **6.41 ILLEGAL BAT:** A bat that has been tampered with in such a way to improve the distance factor or cause an unusual reaction on the baseball.
-- **6.41 ILLEGAL PITCH:** A pitch delivered to the batter without the pitcher's pivot foot in contact with the pitcher's rubber or the pitcher making a quick pitch. With runners on base, it is a balk.
-- **6.42 ILLEGALLY BATTED BALL:** A ball hit by the batter with one or both feet on the ground and entirely outside the batter's box, or a ball hit with an illegal bat.
-- **6.43 IN FLIGHT:** Any batted, thrown, or pitched ball that has not touched the ground or some object other than a player.
-- **6.44 INFIELD:** That area within the 90-foot square (27.43 m2) bounded by home plate, first, second and third bases.
-- **6.45 INFIELD FLY:** A fair fly ball (not including a line drive or an attempted bunt) which can be caught by an infielder with ordinary effort, when first and second, or first, second and third bases are occupied, before two are out. The pitcher, catcher or any outfielders who are in the infield on the said play, shall be considered infielders for the purpose of this rule.
+That part of the playing field outside the first and third base lines extended to the fence and perpendicularly upwards.
+## **6.36 FOUL TIP**
+
+A batted ball that goes sharp and directly from the bat to the catcher and is caught legally by the catcher. It is a strike, and the ball is in play.
+## **6.37 GROUND BALL**
+
+A batted ball that rolls or bounces close to the ground.
+## **6.38 HALF SWING**
+
+An attempt by the batter to stop the forward motion of the bat while swinging, which puts the batter in jeopardy of a strike being called. The half swing shall be called a strike if the barrel head of the bat passes the batter's front hip. This does not apply to a bunt attempt when the batter pulls the bat back.
+## **6.39 HOME TEAM**
+
+The team on whose field the game is played. If the game is played on neutral grounds, the home team shall be determined by mutual agreement.
+
+## **6.40 ILLEGAL**
+
+Anything contrary to these rules.
+## **6.41 ILLEGAL BAT**
+
+A bat that has been tampered with in such a way to improve the distance factor or cause an unusual reaction on the baseball.
+## **6.41 ILLEGAL PITCH**
+
+A pitch delivered to the batter without the pitcher's pivot foot in contact with the pitcher's rubber or the pitcher making a quick pitch. With runners on base, it is a balk.
+## **6.42 ILLEGALLY BATTED BALL**
+
+A ball hit by the batter with one or both feet on the ground and entirely outside the batter's box, or a ball hit with an illegal bat.
+## **6.43 IN FLIGHT**
+
+Any batted, thrown, or pitched ball that has not touched the ground or some object other than a player.
+## **6.44 INFIELD**
+
+That area within the 90-foot square (27.43 m2) bounded by home plate, first, second and third bases.
+## **6.45 INFIELD FLY**
+
+A fair fly ball (not including a line drive or an attempted bunt) which can be caught by an infielder with ordinary effort, when first and second, or first, second and third bases are occupied, before two are out. The pitcher, catcher or any outfielders who are in the infield on the said play, shall be considered infielders for the purpose of this rule.
 
 The ball is alive, and runners may advance at the risk of the ball being caught, or they can retouch and advance after the ball is touched, the same as on any fly ball. If the hit becomes a foul ball, it is treated the same as any foul.
 
@@ -626,45 +729,97 @@ If a declared Infield Fly is allowed to fall untouched to the ground, and bounce
 
 Comment: If interference is called during an Infield Fly, the ball remains alive until it is determined whether the ball is fair or foul. If fair, both the runner who interfered with the fielder and the batter are out. If foul, even if caught, the runner is out, and the batter returns to bat.
 
-- **6.46 INFIELDER:** Fielders (usually four) who are positioned in the infield area.
-- **6.47 INNING:** That portion of a game within which the teams alternate on offence and defence and in which there are three putouts for each team. Each team's time at bat is a half-inning.
-- **6.48 INTERFERENCE**: An act that hinders or prevents a player from making a play. The following are the most prevalent:
+## **6.46 INFIELDER**
+
+Fielders (usually four) who are positioned in the infield area.
+## **6.47 INNING**
+
+That portion of a game within which the teams alternate on offence and defence and in which there are three putouts for each team. Each team's time at bat is a half-inning.
+## **6.48 INTERFERENCE**
+
+An act that hinders or prevents a player from making a play. The following are the most prevalent:
 - 6.48.1 Offensive Interference is an act by the team at bat which interferes with, impedes, hinders, or confuses any fielder attempting to make a play.
 - 6.48.2 Defensive Interference is an act by a fielder (usually the catcher) that hinders or prevents a batter from hitting a pitch.
 - 6.48.3 Umpire's Interference occurs when a plate Umpire hinders, impedes, or prevents a catcher's throw attempting to prevent a stolen base or retire a runner on a pick off play. Also, when a fair ball touches an Umpire in fair territory before passing a fielder, other than the pitcher.
 - 6.48.4 Spectator Interference occurs when a spectator or an object thrown by a spectator, hinders a player's attempt to make a play on a live ball, by going onto the playing field, or reaching out of the stands and over the playing field.
-- **6.49 LEGAL:** Everything in accordance with these rules.
-- **6.50 LIVE BALL:** After the pitcher engages the rubber with possession of the ball and the batter has assumed his position in the batter's box, the Umpire calls, or signals "Play."
-- **6.51 LINE DRIVE:** A batted ball that goes sharp and direct from the bat to a fielder without touching the ground.
+## **6.49 LEGAL**
 
-- **6.52 MANAGER:** The manager is a person appointed by the team to be responsible for the team's actions on the field, and to represent the team in communications with the Umpire and the opposing team.
-- **6.53 MISCONDUCT:** It is any act of dishonesty, unsportsmanlike conduct or unprofessional behaviour that discredits the game.
-- **6.54 OBSTRUCTION:** Is the act of a fielder who, while not in possession of the ball and not in the act of fielding the ball, impedes the progress of any runner. See specific rule sections for action to be taken.
-- **6.55 OFFENCE OR OFFENSE:** The team at bat.
-- **6.56 OFFICIAL SCORER:** See Chapter 5
-- **6.57 ORDINARY EFFORT:** Is the effort that a fielder of average skill at a position in that league or classification should exhibit on a play, with consideration given to the condition of the field and weather conditions.
-- **6.58 OUT:** A declaration by the Umpire that a player who is trying for a base is not entitled to that base.
-- **6.59 OUTFIELDER:** Fielders (usually three) who occupy positions most distant from home plate between the infielders and the outfield fence.
-- **6.60 OVERSLIDE:** Is the act of an offensive player when his slide to a base, other than when advancing from home to first base, is with such momentum that he loses contact with the base.
-- **6.61 PICKOFF:** When a pitcher or catcher throws to a base between pitches in an attempt to retire a runner who is either leading off or about to begin stealing the next base, or to keep a runner close to the base.
-- **6.62 PINCH HITTER:** An eligible substitute player who is not listed in the line-up and bats for a player listed in the line-up.
-- **6.63 PINCH RUNNER:** An eligible substitute player who is not listed in the line-up and runs for a player listed in the line-up.
+Everything in accordance with these rules.
+## **6.50 LIVE BALL**
+
+After the pitcher engages the rubber with possession of the ball and the batter has assumed his position in the batter's box, the Umpire calls, or signals "Play."
+## **6.51 LINE DRIVE**
+
+A batted ball that goes sharp and direct from the bat to a fielder without touching the ground.
+
+## **6.52 MANAGER**
+
+The manager is a person appointed by the team to be responsible for the team's actions on the field, and to represent the team in communications with the Umpire and the opposing team.
+## **6.53 MISCONDUCT**
+
+It is any act of dishonesty, unsportsmanlike conduct or unprofessional behaviour that discredits the game.
+## **6.54 OBSTRUCTION**
+
+Is the act of a fielder who, while not in possession of the ball and not in the act of fielding the ball, impedes the progress of any runner. See specific rule sections for action to be taken.
+## **6.55 OFFENCE OR OFFENSE**
+
+The team at bat.
+## **6.56 OFFICIAL SCORER**
+
+See Chapter 5
+## **6.57 ORDINARY EFFORT**
+
+Is the effort that a fielder of average skill at a position in that league or classification should exhibit on a play, with consideration given to the condition of the field and weather conditions.
+## **6.58 OUT**
+
+A declaration by the Umpire that a player who is trying for a base is not entitled to that base.
+## **6.59 OUTFIELDER**
+
+Fielders (usually three) who occupy positions most distant from home plate between the infielders and the outfield fence.
+## **6.60 OVERSLIDE**
+
+Is the act of an offensive player when his slide to a base, other than when advancing from home to first base, is with such momentum that he loses contact with the base.
+## **6.61 PICKOFF**
+
+When a pitcher or catcher throws to a base between pitches in an attempt to retire a runner who is either leading off or about to begin stealing the next base, or to keep a runner close to the base.
+## **6.62 PINCH HITTER**
+
+An eligible substitute player who is not listed in the line-up and bats for a player listed in the line-up.
+## **6.63 PINCH RUNNER**
+
+An eligible substitute player who is not listed in the line-up and runs for a player listed in the line-up.
 
 
 
-- **6.64 PITCH:** The ball delivered by the pitcher to the batter while in contact with the pitcher's rubber.
-- **6.65 PITCHER:** The fielder designated to deliver the pitch to the batter.
-- **6.66 PITCHER'S PIVOT FOOT:** The foot in contact with the pitching rubber when the pitcher is in the act of delivering the ball.
+## **6.64 PITCH**
+
+The ball delivered by the pitcher to the batter while in contact with the pitcher's rubber.
+## **6.65 PITCHER**
+
+The fielder designated to deliver the pitch to the batter.
+## **6.66 PITCHER'S PIVOT FOOT**
+
+The foot in contact with the pitching rubber when the pitcher is in the act of delivering the ball.
 
 Note: For a right-handed pitcher the right foot is the pivot foot. For a left-handed pitcher the left foot is the pivot foot.
 
 Some portion of the pitcher's pivot foot must be in contact with the pitching rubber for the pitch to be legal.
 
-- **6.67 PLAY:** The order given by the Umpire to begin the game or resume play.
-- **6.68 QUICK PITCH:** An illegal pitch made with the obvious intent to catch the batter off balance.
-- **6.69 RETOUCH:** Is the act of a runner in returning to a base as legally required.
-- **6.70 RUN:** Is the score made by an offensive player who advances from batter to runner and touches first, second, third and home plate in that order.
-- **6.71 RUN DIFFERENCE RULE:** The rule by which a game ends at a point if a team is losing by a certain amount of runs.
+## **6.67 PLAY**
+
+The order given by the Umpire to begin the game or resume play.
+## **6.68 QUICK PITCH**
+
+An illegal pitch made with the obvious intent to catch the batter off balance.
+## **6.69 RETOUCH**
+
+Is the act of a runner in returning to a base as legally required.
+## **6.70 RUN**
+
+Is the score made by an offensive player who advances from batter to runner and touches first, second, third and home plate in that order.
+## **6.71 RUN DIFFERENCE RULE**
+
+The rule by which a game ends at a point if a team is losing by a certain amount of runs.
 
 ### 6.71.1 U-12:
 
@@ -678,20 +833,32 @@ Exception: If the last batter in a game hits a home run out of the playing field
 
 Approved Ruling: The batter hits a home run out of the playing field to win the game in the last half of the seventh inning of a seven (7) inning game or an extra inning but is called out for passing a preceding runner. The game ends immediately when the winning run is scored, unless there are two outs and the winning run has not yet reached home plate when the runner passes another, in which case the inning is over and only those runs that scored before the runner passes another shall count.
 
-- **6.72 RUN DOWN:** The act of the defence in an attempt to put out a runner between bases.
-- **6.73 RUNNER:** An offensive player who is advancing to, returning to, or touching a base.
-- **6.74 SAFE:** Is a declaration by the Umpire that a runner is entitled to the base for which he is trying.
-- **6.75 SET POSITION:** Is one of the two legal pitching positions. Usually used with runners on base.
+## **6.72 RUN DOWN**
+
+The act of the defence in an attempt to put out a runner between bases.
+## **6.73 RUNNER**
+
+An offensive player who is advancing to, returning to, or touching a base.
+## **6.74 SAFE**
+
+Is a declaration by the Umpire that a runner is entitled to the base for which he is trying.
+## **6.75 SET POSITION**
+
+Is one of the two legal pitching positions. Usually used with runners on base.
 
 Note: With a runner or runners on base, a pitcher will be presumed to be pitching from the set position if he stands with his pivot foot in contact with and parallel to the pitcher's plate, and his other foot in front of the pitcher's plate, unless he notifies the Umpire that he will be pitching from the windup position under such circumstances prior to the beginning of an at bat. A pitcher will be permitted to notify the Umpire that he is pitching from the windup position within an at bat only in the following events:
 
 - a. A substitution by the offensive team.
 - b. Immediately upon the advancement of one or more runners. For example, after one or more base runners advance but before the delivery of the next pitch.
-- **6.76 SQUEEZE PLAY:** A play whereby a team, with a runner on third base, attempts to score that runner by means of a bunt.
+## **6.76 SQUEEZE PLAY**
+
+A play whereby a team, with a runner on third base, attempts to score that runner by means of a bunt.
 
 
 
-- **6.77 STRIKE:** A legal pitch when called by the Umpire. A strike is:
+## **6.77 STRIKE**
+
+A legal pitch when called by the Umpire. A strike is:
 - 6.77.1 A legal pitch struck at by the batter without the ball touching the bat.
 - 6.77.2 A legal pitch that enters the strike zone (See Appendix 4 for the diagram) in flight and is not struck at.
 
@@ -705,26 +872,50 @@ If a pitched ball strikes the ground in front of the batter and the batter swing
 - 6.77.6 A foul tip.
 - 6.77.7 After the offensive warning and the batter fails to take a position in the batter's box immediately after ordered by the Umpire and the 20 second limit expires.
 - 6.77.8 Awarded if the batter deliberately steps back in the box or swings in such a manner to attempt to create catcher's interference. If the swing hits the catcher or the mitt, the batter will be called out. All base runners shall return to the base occupied at the time of the pitch.
-- **6.78 STRIKE ZONE:** The area over home plate from the bottom of the kneecaps to the midpoint between the top of the shoulders and
+## **6.78 STRIKE ZONE**
+
+The area over home plate from the bottom of the kneecaps to the midpoint between the top of the shoulders and
 
 the top of the uniform pants. The strike zone shall be determined from the batter's stance as the batter is prepared to swing at a pitched ball. See Diagram in Appendix 4.
 
-- **6.79 SUBSTITUTE:** A substitute is an eligible roster player who is not one of the players listed on the line-up card and has not been withdrawn or disqualified.
-- **6.80 SUSPENDED GAME:** A game that is stopped because of weather, curfew, or other reason. To be completed at a later date.
-- **6.81 TAG:** A tag is the action of a fielder in touching a base with his body while holding the ball, or with his hand or glove, or touching a runner with the ball, or with his hand or glove holding the ball (not including hanging laces alone), while holding the ball securely and firmly in his hand or glove. It is not a tag, however, if simultaneously or immediately following his touching a base or touching a runner, the fielder drops the ball. In establishing the validity of the tag, the fielder shall hold the ball long enough to prove that he has complete control of the ball. If the fielder has made a tag and drops the ball while in the act of making a throw following the tag, the tag shall be adjudged to have been made.
-- **6.82 THROW:** A throw is the act of propelling the ball with the hand and arm to a given objective and is to be distinguished, always, from the pitch.
-- **6.83 TIE GAME:** Is a regulation game which is called when each team has the same number of runs.
-- **6.84 TIME:** The interruption of play by any Umpire, calling or signalling the ball dead.
-- **6.85 TIME OF PITCH:** The time of pitch shall be determined when:
+## **6.79 SUBSTITUTE**
+
+A substitute is an eligible roster player who is not one of the players listed on the line-up card and has not been withdrawn or disqualified.
+## **6.80 SUSPENDED GAME**
+
+A game that is stopped because of weather, curfew, or other reason. To be completed at a later date.
+## **6.81 TAG**
+
+A tag is the action of a fielder in touching a base with his body while holding the ball, or with his hand or glove, or touching a runner with the ball, or with his hand or glove holding the ball (not including hanging laces alone), while holding the ball securely and firmly in his hand or glove. It is not a tag, however, if simultaneously or immediately following his touching a base or touching a runner, the fielder drops the ball. In establishing the validity of the tag, the fielder shall hold the ball long enough to prove that he has complete control of the ball. If the fielder has made a tag and drops the ball while in the act of making a throw following the tag, the tag shall be adjudged to have been made.
+## **6.82 THROW**
+
+A throw is the act of propelling the ball with the hand and arm to a given objective and is to be distinguished, always, from the pitch.
+## **6.83 TIE GAME**
+
+Is a regulation game which is called when each team has the same number of runs.
+## **6.84 TIME**
+
+The interruption of play by any Umpire, calling or signalling the ball dead.
+## **6.85 TIME OF PITCH**
+
+The time of pitch shall be determined when:
 - 6.85.1 In the windup position, when the pitcher makes any movement connected with the delivery to the plate.
 - 6.85.2 In the set position, when the pitcher begins his natural movement associated with the pitcher's delivery of the ball after the pitcher has come set with both hands together in front of his body.
 
 
 
-- **6.86 TOUCH:** To touch a player or Umpire is to touch any part of his body, or any uniform or equipment worn by him, but not any jewellery, worn by a player.
-- **6.87 TRIPLE PLAY:** A continuous play by the defence in which three players are put out without an error between the putouts.
-- **6.88 WILD PITCH:** Is one so high, so low, or so wide of the plate that it cannot be handled with ordinary effort by the catcher.
-- **6.89 WINDUP:** One of two legal pitching positions, usually made with no runners on base.
+## **6.86 TOUCH**
+
+To touch a player or Umpire is to touch any part of his body, or any uniform or equipment worn by him, but not any jewellery, worn by a player.
+## **6.87 TRIPLE PLAY**
+
+A continuous play by the defence in which three players are put out without an error between the putouts.
+## **6.88 WILD PITCH**
+
+Is one so high, so low, or so wide of the plate that it cannot be handled with ordinary effort by the catcher.
+## **6.89 WINDUP**
+
+One of two legal pitching positions, usually made with no runners on base.
 
 # <span id="page-36-0"></span>**CHAPTER 03.**
 
@@ -1559,7 +1750,7 @@ When three offensive players are legally put out, that team takes the field and 
 
 # **RULE 12.INTERFERENCE, OBSTRUCTION AND CATCHER COLLISIONS**
 
-#### **12.1 BATTER OR RUNNER INTERFERENCE**
+## **12.1 BATTER OR RUNNER INTERFERENCE**
 
 It is interference by a batter or a runner when:
 
@@ -1601,11 +1792,11 @@ If, however, the runner has contact with a legally occupied base when he hinders
 
 This same principle applies if there is a run-down between second and third base and the following runner has reached second (the reasoning is that no runner shall advance on an interference play and a runner is considered to occupy a base until he legally has reached the next succeeding base).
 
-#### **12.2 FIELDER RIGHT OF WAY**
+## **12.2 FIELDER RIGHT OF WAY**
 
 The players, coaches, or any member of a team at bat must vacate any space or area (including both dugouts or bullpens) needed by a fielder who is attempting to field a batted or thrown ball. If a member of the team at bat (other than a runner) hinders a fielder's attempt to catch or field a batted ball, the ball is dead, the batter is declared out and all runners return to the bases occupied at the time of the pitch. If a member of the team at bat (other than a runner) hinders a fielder's attempt to field a thrown ball, the ball is dead, the runner on whom the play is being made shall be declared out and all runners return to the last legally occupied base at the time of the interference.
 
-#### **12.3 UNINTENTIONAL INTERFERENCE**
+## **12.3 UNINTENTIONAL INTERFERENCE**
 
 In case of unintentional interference with play by any person authorised to be on the playing field (except members of the team at bat who are participating in the game, or a base coach, any of whom interfere with a fielder attempting to field a batted or thrown ball, or an Umpire) the ball is alive and in play. If the interference is intentional, the ball shall be dead at the moment of the interference and the Umpire shall impose such penalties as in his opinion will nullify the act of interference.
 
@@ -1615,7 +1806,7 @@ The question of intentional or unintentional interference shall be decided based
 
 Play: Batter hits ball to third baseman, who fields the ball but throws it wild past the first baseman. The first base coach falls to the ground in trying to avoid being hit by the ball. The first baseman going to retrieve the ball runs into the coach. The batter-runner finally ends up on third base. Whether the Umpire should call interference on the part of the coach is up to the judgment of the Umpire and if the Umpire felt that the coach did all he could to avoid interfering with the play, no interference need be called. If, in the judgement of the Umpire, the coach was attempting to make it appear that he was trying not to interfere, the Umpire should rule interference.
 
-#### **12.4 SPECTATOR INTERFERENCE**
+## **12.4 SPECTATOR INTERFERENCE**
 
 When there is spectator interference with any thrown or batted ball, the ball shall be dead at the moment of interference and the Umpire shall impose such penalties as in his opinion will nullify the act of interference.
 
@@ -1627,7 +1818,7 @@ No interference will be called when a fielder reaches over a fence, railing or i
 
 Example: Runner on third base, one out and a batter hits a fly ball deep to the outfield (fair or foul). Spectator clearly interferes with the outfielder attempting to catch the fly ball. Umpire calls the batter out for spectator interference. Ball is dead at the time of the call. Umpire decides that because of the distance the ball was hit, the runner on third base would have scored after the catch if the fielder had caught the ball which was interfered with, therefore, the runner is permitted to score. This might not be the case if the fly ball was a short distance from home plate.
 
-#### <span id="page-86-0"></span>**12.5 UMPIRE OR COACH INTERFERENCE**
+## <span id="page-86-0"></span>**12.5 UMPIRE OR COACH INTERFERENCE**
 
 Umpire interference occurs when a plate Umpire hinders, impedes, or prevents a catcher's throw attempting to prevent a stolen base or retire a runner on a pick-off play.
 
@@ -1647,11 +1838,11 @@ If a thrown ball or pitched ball strikes an Umpire, the ball is in play and the 
 
 If a thrown ball hits a base coach in foul territory, the ball is in play.
 
-#### **12.6 INTERFERENCE WITH SQUEEZE PLAY OR STEAL OF HOME**
+## **12.6 INTERFERENCE WITH SQUEEZE PLAY OR STEAL OF HOME**
 
 If the catcher interferes on a squeeze play or a steal of home, that is if the catcher does not have possession of the ball or touches the batter or his bat, the pitcher shall be charged with a balk, the batter shall be awarded first base on the interference and the ball is dead.
 
-#### **12.7 OBSTRUCTION**
+## **12.7 OBSTRUCTION**
 
 Obstruction is the act of a fielder who, while not in possession of the ball and not in the act of fielding the ball, impedes the progress of any runner. If a fielder is about to receive a thrown ball and if the ball is in flight directly toward and near enough to the fielder so he must occupy his position to receive the ball he may be considered "in the act of fielding the ball." It is entirely up to the judgement of the Umpire as to whether a fielder is in the act of fielding a ball. After a fielder has made an attempt to field the ball and missed, he can no longer be in the "act of fielding" the ball. For example: an infielder dives at a ground ball and the ball passes him and he
 
@@ -1661,7 +1852,7 @@ continues to lie on the ground and delays or impedes the progress of the runner,
 
 There are two types of obstruction. These types are commonly referred to as Type A Obstruction and Type B Obstruction.
 
-#### TYPE A OBSTRUCTION
+### TYPE A OBSTRUCTION
 
 Type A Obstruction occurs when the defence is making a play on the runner who was obstructed or when the batter-runner is obstructed before first base.
 
@@ -1685,7 +1876,7 @@ Exception: If the batter-runner is obstructed before first base (a form of Type 
 
 Comment: When a play is being made on an obstructed runner, the Umpire shall signal obstruction in the same manner that he calls "Time," with both hands overhead. The ball is immediately dead when this signal is given. However, should a thrown ball be in flight before the obstruction is called by the Umpire, the runners are to be awarded such bases on wild throws as they would have been awarded had not obstruction occurred. On a play where the runner was trapped between second and third and obstructed by the third baseman going into third while the throw is in flight from the shortstop, if such throw goes into the dugout the obstructed runner is to be awarded home base. Any other runners on base in this situation would also be awarded two bases from the base they last legally touched before obstruction was called.
 
-#### TYPE B OBSTRUCTION
+### TYPE B OBSTRUCTION
 
 Type B Obstruction is when the runner is obstructed while NO PLAY is being made on that runner.
 
@@ -1707,7 +1898,7 @@ Comment: When the ball is not dead on obstruction and an obstructed runner advan
 
 Note: The catcher, without the ball in his possession, has no right to block the pathway of the runner attempting to score. The base line belongs to the runner and the catcher should be there only when he is fielding a ball or when he already has the ball in his possession.
 
-#### **12.8 COLLISION RULE**
+## **12.8 COLLISION RULE**
 
 The WBSC is concerned about unnecessary and violent collisions primarily with the catcher at home plate, and with infielders at all bases. The intent of this rule is to encourage base runners and defensive players to avoid such collisions whenever possible.
 
@@ -3921,5 +4112,4 @@ Avenue Général-Guisan, 45 CH-1009 Pully | Switzerland
 #### **OFFICE**
 
 Phone: +41 21 318 8240 Fax: +41 21 318 8241 E-mail: office@wbsc.org
-
 
