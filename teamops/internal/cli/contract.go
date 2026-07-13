@@ -84,8 +84,8 @@ var commandInputContracts = []CommandInputContract{
 			"own_score":      integerProperty("Own final score", 0),
 			"opponent_score": integerProperty("Opponent final score", 0),
 			"raw":            stringProperty("Raw game description"),
-			"lineups":        arrayProperty("Game lineup entries", "object"),
-			"events":         arrayProperty("Game fact events", "object"),
+			"lineups":        gameLineupArrayProperty("Game lineup entries"),
+			"events":         gameEventArrayProperty("Game fact events"),
 		},
 		map[string]any{"date": "2026-06-30", "opponent": "海港队", "batting_side": "top", "own_score": 1, "opponent_score": 0, "raw": "比赛记录", "lineups": []any{}, "events": []any{}},
 	),
@@ -103,11 +103,12 @@ var commandInputContracts = []CommandInputContract{
 	),
 	objectContract(
 		[]string{"game", "lineup", "add"},
-		[]string{"game_id", "team", "player"},
+		[]string{"game_id", "team"},
 		map[string]map[string]any{
 			"game_id":           positiveIntegerProperty("Game id"),
 			"team":              enumStringProperty("Lineup team", []string{"own", "opponent"}),
 			"player":            stringProperty("Player name"),
+			"player_key":        stringProperty("Optional database-local player key; one of player/player_key is required"),
 			"batting_order":     rangedIntegerProperty("Optional batting order", 1, 9),
 			"starting_position": enumStringProperty("Optional starting position", []string{"P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"}),
 		},
@@ -118,7 +119,7 @@ var commandInputContracts = []CommandInputContract{
 		[]string{"game_id", "events"},
 		map[string]map[string]any{
 			"game_id": positiveIntegerProperty("Game id"),
-			"events":  arrayProperty("Ordered game fact events", "object"),
+			"events":  eventArrayProperty("Ordered game fact events"),
 		},
 		map[string]any{"game_id": 1, "events": []any{}},
 	),
@@ -127,7 +128,7 @@ var commandInputContracts = []CommandInputContract{
 		[]string{"game_id", "events"},
 		map[string]map[string]any{
 			"game_id": positiveIntegerProperty("Game id"),
-			"events":  arrayProperty("Ordered game fact events", "object"),
+			"events":  eventArrayProperty("Ordered game fact events"),
 		},
 		map[string]any{"game_id": 1, "events": []any{}},
 	),
@@ -146,6 +147,16 @@ var commandInputContracts = []CommandInputContract{
 		[]string{"game_id"},
 		map[string]map[string]any{"game_id": positiveIntegerProperty("Game id")},
 		map[string]any{"game_id": 1},
+	),
+	objectContract(
+		[]string{"game", "analysis", "generate-batch"},
+		[]string{"from", "to"},
+		map[string]map[string]any{
+			"from": formattedStringProperty("Inclusive start date", "date"),
+			"to":   formattedStringProperty("Inclusive end date", "date"),
+			"mode": enumStringProperty("Generation mode", []string{"missing", "stale", "all"}),
+		},
+		map[string]any{"from": "2025-01-01", "to": "2025-12-31", "mode": "missing"},
 	),
 	objectContract(
 		[]string{"lineup", "validate"},
@@ -224,6 +235,48 @@ func arrayProperty(description, itemType string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": itemType}, "description": description}
 }
 
+func eventArrayProperty(description string) map[string]any {
+	return map[string]any{
+		"type": "array", "minItems": 1, "description": description,
+		"items": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"requiredFields": []string{"inning", "half", "sequence", "event_kind", "team", "result"},
+			"oneOf":          []any{map[string]any{"requiredFields": []string{"player_key"}}, map[string]any{"requiredFields": []string{"player"}}},
+			"properties": map[string]any{
+				"inning": rangedIntegerProperty("Inning", 1, 99), "half": enumStringProperty("Half inning", []string{"top", "bottom"}),
+				"play_no": positiveIntegerProperty("Optional source play number"), "sequence": positiveIntegerProperty("Sequence within play"),
+				"event_kind": enumStringProperty("Event kind", []string{"plate_result", "runner_movement", "fielding_credit"}),
+				"player":     stringProperty("Player name snapshot"), "player_key": stringProperty("Optional player key"), "team": enumStringProperty("Team", []string{"own", "opponent"}),
+				"result": stringProperty("Result enum determined by event_kind"), "related_player": stringProperty("Related player snapshot"), "related_player_key": stringProperty("Related player key"),
+				"rbi_player": stringProperty("RBI player snapshot"), "rbi_player_key": stringProperty("RBI player key"),
+				"base_from": rangedIntegerProperty("Origin base", 0, 3), "base_to": rangedIntegerProperty("Destination base", 1, 4),
+				"outs_on_play": integerProperty("Outs on play", 0), "runs_scored": integerProperty("Runs scored", 0), "value": integerProperty("Credit value", 0),
+			},
+		},
+	}
+}
+
+func gameEventArrayProperty(description string) map[string]any {
+	property := eventArrayProperty(description)
+	property["minItems"] = 0
+	return property
+}
+
+func gameLineupArrayProperty(description string) map[string]any {
+	return map[string]any{
+		"type": "array", "description": description,
+		"items": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"requiredFields": []string{"team"},
+			"oneOf":          []any{map[string]any{"requiredFields": []string{"player_key"}}, map[string]any{"requiredFields": []string{"player"}}},
+			"properties": map[string]any{
+				"team": enumStringProperty("Lineup team", []string{"own", "opponent"}), "player": stringProperty("Name snapshot"), "player_key": stringProperty("Player key"),
+				"batting_order": rangedIntegerProperty("Batting order", 1, 9), "starting_position": enumStringProperty("Starting position", []string{"P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"}),
+			},
+		},
+	}
+}
+
 func batchOperationsProperty(description string) map[string]any {
 	return map[string]any{
 		"type":        "array",
@@ -254,9 +307,9 @@ func lineupProperties() map[string]map[string]any {
 		"schema_version": enumStringProperty("Lineup schema version", []string{"1.0"}),
 		"game_id":        positiveIntegerProperty("Game id"),
 		"strategy":       stringProperty("Optional lineup strategy"),
-		"starters":       arrayProperty("Starting lineup entries", "object"),
-		"bench":          arrayProperty("Optional bench entries", "object"),
-		"pitching_plan":  arrayProperty("Optional pitching plan entries", "object"),
+		"starters":       {"type": "array", "minItems": 9, "maxItems": 9, "items": map[string]any{"type": "object", "requiredFields": []string{"player", "position", "batting_order"}, "properties": map[string]any{"player": stringProperty("Player name"), "position": enumStringProperty("Position", []string{"P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"}), "batting_order": rangedIntegerProperty("Batting order", 1, 9)}}},
+		"bench":          {"type": "array", "items": map[string]any{"type": "object", "requiredFields": []string{"player", "suggested_role"}}},
+		"pitching_plan":  {"type": "array", "items": map[string]any{"type": "object", "requiredFields": []string{"player", "role"}, "properties": map[string]any{"role": enumStringProperty("Pitching role", []string{"starter", "reliever", "closer"}), "planned_innings": integerProperty("Planned innings", 1)}}},
 		"reasoning":      arrayProperty("Optional reasoning notes", "string"),
 	}
 }

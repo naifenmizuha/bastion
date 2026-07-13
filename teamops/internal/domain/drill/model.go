@@ -14,6 +14,7 @@ const (
 
 type Recommendation struct {
 	ID            int64     `json:"id"`
+	PlayerID      int64     `json:"player_id"`
 	Name          string    `json:"name"`
 	URL           string    `json:"url"`
 	Reason        string    `json:"reason"`
@@ -25,6 +26,7 @@ type Recommendation struct {
 	ReviewNote    string    `json:"review_note"`
 	ReviewedAt    string    `json:"reviewed_at"`
 	CreatedAt     string    `json:"created_at"`
+	UpdatedAt     string    `json:"updated_at"`
 }
 
 type ListFilter struct {

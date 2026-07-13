@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"teamops/internal/domain/game"
@@ -92,6 +93,9 @@ func (s *Store) AddGameLineup(lineup game.GameLineup) (int64, error) {
 		if err != nil {
 			return err
 		}
+		if err := deleteGameAnalysisTx(tx, lineup.GameID); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`UPDATE games SET updated_at = ? WHERE id = ?`, updatedAt, lineup.GameID)
 		return err
 	})
@@ -103,6 +107,12 @@ func (s *Store) AddGameLineup(lineup game.GameLineup) (int64, error) {
 
 // AddGameEvents 在事务中确认比赛并批量追加事件。
 func (s *Store) AddGameEvents(gameID int64, events []game.GameEvent) (int, error) {
+	result, err := s.UpsertGameEvents(gameID, events)
+	return result.Inserted + result.Updated, err
+}
+
+func (s *Store) UpsertGameEvents(gameID int64, events []game.GameEvent) (game.EventWriteResult, error) {
+	result := game.EventWriteResult{Idempotent: true}
 	err := s.withTx(func(tx *sql.Tx) error {
 		updatedAt := nowTimestamp()
 		exists, err := gameExistsTx(tx, gameID)
@@ -114,17 +124,40 @@ func (s *Store) AddGameEvents(gameID int64, events []game.GameEvent) (int, error
 		}
 		for _, event := range events {
 			event.GameID = gameID
+			updated := false
+			if event.PlayNo != nil {
+				var oldID int64
+				err := tx.QueryRow(`SELECT id FROM game_events WHERE game_id=? AND inning=? AND half=? AND play_no=? AND sequence=?`, gameID, event.Inning, int(event.Half), *event.PlayNo, event.Sequence).Scan(&oldID)
+				if err == nil {
+					if _, err := tx.Exec(`DELETE FROM game_events WHERE id=?`, oldID); err != nil {
+						return err
+					}
+					updated = true
+				} else if !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+			} else {
+				result.Idempotent = false
+			}
 			if _, err := insertGameEvent(tx, event); err != nil {
 				return err
 			}
+			if updated {
+				result.Updated++
+			} else {
+				result.Inserted++
+			}
+		}
+		if err := deleteGameAnalysisTx(tx, gameID); err != nil {
+			return err
 		}
 		_, err = tx.Exec(`UPDATE games SET updated_at = ? WHERE id = ?`, updatedAt, gameID)
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return game.EventWriteResult{}, err
 	}
-	return len(events), nil
+	return result, nil
 }
 
 // SetGameScore 更新比分并将比赛标记为已结束。
@@ -137,6 +170,9 @@ func (s *Store) SetGameScore(gameID int64, ownScore int, opponentScore int) erro
 		}
 		if !exists {
 			return fmt.Errorf("game not found: %d", gameID)
+		}
+		if err := deleteGameAnalysisTx(tx, gameID); err != nil {
+			return err
 		}
 		_, err = tx.Exec(`
 UPDATE games
@@ -167,19 +203,51 @@ func (s *Store) GetGame(id int64) (game.GameDetails, error) {
 // ListGames 按可选日期查询比赛列表。
 func (s *Store) ListGames(filter game.GameListFilter) ([]game.Game, error) {
 	query := `
-SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at
+SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at, updated_at
 FROM games
-ORDER BY date DESC, id DESC
 `
+	var conditions []string
 	args := []any{}
 	if filter.Date != "" {
-		query = `
-SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at
-FROM games
-WHERE date = ?
-ORDER BY date DESC, id DESC
-`
+		conditions = append(conditions, "date=?")
 		args = append(args, filter.Date)
+	}
+	if filter.From != "" {
+		conditions = append(conditions, "date>=?")
+		args = append(args, filter.From)
+	}
+	if filter.To != "" {
+		conditions = append(conditions, "date<=?")
+		args = append(args, filter.To)
+	}
+	if filter.Opponent != "" {
+		conditions = append(conditions, "opponent=?")
+		args = append(args, filter.Opponent)
+	}
+	if filter.Final != nil {
+		conditions = append(conditions, "is_final=?")
+		args = append(args, *filter.Final)
+	}
+	switch filter.Result {
+	case "win":
+		conditions = append(conditions, "is_final=1 AND own_score>opponent_score")
+	case "loss":
+		conditions = append(conditions, "is_final=1 AND own_score<opponent_score")
+	case "tie":
+		conditions = append(conditions, "is_final=1 AND own_score=opponent_score")
+	case "in_progress":
+		conditions = append(conditions, "is_final=0")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY date DESC, id DESC"
+	if filter.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, filter.Offset)
+	} else if filter.Offset > 0 {
+		query += " LIMIT -1 OFFSET ?"
+		args = append(args, filter.Offset)
 	}
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -212,6 +280,16 @@ func (s *Store) ReplaceGameAnalysis(result game.GameAnalysisResult) error {
 		if !exists {
 			return fmt.Errorf("game not found: %d", result.Analysis.GameID)
 		}
+		var ownTeamID int64
+		if err := tx.QueryRow(`SELECT own_team_id FROM games WHERE id=?`, result.Analysis.GameID).Scan(&ownTeamID); err != nil {
+			return err
+		}
+		fillTeamID := func(id int64) int64 {
+			if id == 0 {
+				return ownTeamID
+			}
+			return id
+		}
 		if err := deleteGameAnalysisTx(tx, result.Analysis.GameID); err != nil {
 			return err
 		}
@@ -224,52 +302,52 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 		for _, row := range result.Summaries {
 			if _, err := tx.Exec(`
 INSERT INTO game_player_performance_summaries (
-	game_id, team_id, player, batting_order, positions, batting_available, baserunning_available,
+	game_id, team_id, player_id, player, batting_order, positions, batting_available, baserunning_available,
 	pitching_available, fielding_available, highlight, risk
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, row.GameID, row.TeamID, row.Player, nullInt(row.BattingOrder), nullString(row.Positions), row.BattingAvailable, row.BaserunningAvailable, row.PitchingAvailable, row.FieldingAvailable, nullString(row.Highlight), nullString(row.Risk)); err != nil {
+) VALUES (?, ?, (SELECT id FROM players WHERE team_id=? AND name=?), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, row.GameID, fillTeamID(row.TeamID), fillTeamID(row.TeamID), row.Player, row.Player, nullInt(row.BattingOrder), nullString(row.Positions), row.BattingAvailable, row.BaserunningAvailable, row.PitchingAvailable, row.FieldingAvailable, nullString(row.Highlight), nullString(row.Risk)); err != nil {
 				return err
 			}
 		}
 		for _, row := range result.Batting {
 			if _, err := tx.Exec(`
 INSERT INTO game_player_batting_stats (
-	game_id, team_id, player, pa, at_bats, hits, singles, doubles, triples, homeruns, walks,
+	game_id, team_id, player_id, player, pa, at_bats, hits, singles, doubles, triples, homeruns, walks,
 	hit_by_pitch, strikeouts, reached_on_error, runs_batted_in, total_bases,
 	batting_average, on_base_percentage, slugging_percentage, ops
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, row.GameID, row.TeamID, row.Player, row.PA, row.AtBats, row.Hits, row.Singles, row.Doubles, row.Triples, row.Homeruns, row.Walks, row.HitByPitch, row.Strikeouts, row.ReachedOnError, row.RunsBattedIn, row.TotalBases, row.BattingAverage, row.OnBasePercentage, row.SluggingPercentage, row.OPS); err != nil {
+) VALUES (?, ?, (SELECT id FROM players WHERE team_id=? AND name=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, row.GameID, fillTeamID(row.TeamID), fillTeamID(row.TeamID), row.Player, row.Player, row.PA, row.AtBats, row.Hits, row.Singles, row.Doubles, row.Triples, row.Homeruns, row.Walks, row.HitByPitch, row.Strikeouts, row.ReachedOnError, row.RunsBattedIn, row.TotalBases, row.BattingAverage, row.OnBasePercentage, row.SluggingPercentage, row.OPS); err != nil {
 				return err
 			}
 		}
 		for _, row := range result.Baserunning {
 			if _, err := tx.Exec(`
 INSERT INTO game_player_baserunning_stats (
-	game_id, team_id, player, runs, stolen_bases, caught_stealing, stolen_base_attempts,
+	game_id, team_id, player_id, player, runs, stolen_bases, caught_stealing, stolen_base_attempts,
 	stolen_base_percentage, extra_bases_taken, baserunning_outs
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, row.GameID, row.TeamID, row.Player, row.Runs, row.StolenBases, row.CaughtStealing, row.StolenBaseAttempts, row.StolenBasePercentage, row.ExtraBasesTaken, row.BaserunningOuts); err != nil {
+) VALUES (?, ?, (SELECT id FROM players WHERE team_id=? AND name=?), ?, ?, ?, ?, ?, ?, ?, ?)
+`, row.GameID, fillTeamID(row.TeamID), fillTeamID(row.TeamID), row.Player, row.Player, row.Runs, row.StolenBases, row.CaughtStealing, row.StolenBaseAttempts, row.StolenBasePercentage, row.ExtraBasesTaken, row.BaserunningOuts); err != nil {
 				return err
 			}
 		}
 		for _, row := range result.Pitching {
 			if _, err := tx.Exec(`
 INSERT INTO game_player_pitching_stats (
-	game_id, team_id, player, outs_recorded, innings_pitched, batters_faced, hits_allowed,
+	game_id, team_id, player_id, player, outs_recorded, innings_pitched, batters_faced, hits_allowed,
 	walks_allowed, strikeouts, homeruns_allowed, runs_allowed, earned_runs, ra9,
 	era, whip, strikeout_walk_ratio, wild_pitches, balks, pickoffs, hit_batters
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, row.GameID, row.TeamID, row.Player, row.OutsRecorded, row.InningsPitched, row.BattersFaced, row.HitsAllowed, row.WalksAllowed, row.Strikeouts, row.HomerunsAllowed, row.RunsAllowed, row.EarnedRuns, row.RA9, nullFloat(row.ERA), row.WHIP, nullFloat(row.StrikeoutWalkRatio), row.WildPitches, row.Balks, row.Pickoffs, row.HitBatters); err != nil {
+) VALUES (?, ?, (SELECT id FROM players WHERE team_id=? AND name=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, row.GameID, fillTeamID(row.TeamID), fillTeamID(row.TeamID), row.Player, row.Player, row.OutsRecorded, row.InningsPitched, row.BattersFaced, row.HitsAllowed, row.WalksAllowed, row.Strikeouts, row.HomerunsAllowed, row.RunsAllowed, row.EarnedRuns, row.RA9, nullFloat(row.ERA), row.WHIP, nullFloat(row.StrikeoutWalkRatio), row.WildPitches, row.Balks, row.Pickoffs, row.HitBatters); err != nil {
 				return err
 			}
 		}
 		for _, row := range result.Fielding {
 			if _, err := tx.Exec(`
 INSERT INTO game_player_fielding_stats (
-	game_id, team_id, player, positions, putouts, assists, errors, total_chances,
+	game_id, team_id, player_id, player, positions, putouts, assists, errors, total_chances,
 	fielding_percentage, double_plays, passed_balls, outfield_assists
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, row.GameID, row.TeamID, row.Player, nullString(row.Positions), row.Putouts, row.Assists, row.Errors, row.TotalChances, row.FieldingPercentage, row.DoublePlays, row.PassedBalls, row.OutfieldAssists); err != nil {
+) VALUES (?, ?, (SELECT id FROM players WHERE team_id=? AND name=?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, row.GameID, fillTeamID(row.TeamID), fillTeamID(row.TeamID), row.Player, row.Player, nullString(row.Positions), row.Putouts, row.Assists, row.Errors, row.TotalChances, row.FieldingPercentage, row.DoublePlays, row.PassedBalls, row.OutfieldAssists); err != nil {
 				return err
 			}
 		}
@@ -348,7 +426,7 @@ func (s *Store) AnalysisTeamID(gameID int64, teamName string) (int64, error) {
 // ListGameAnalyses 查询所有已生成比赛分析的摘要。
 func (s *Store) ListGameAnalyses() ([]game.GameAnalysisListItem, error) {
 	rows, err := s.db.Query(`
-SELECT a.game_id, g.date, g.opponent, a.own_runs, a.opponent_runs, a.result, g.is_final, a.players_analyzed, a.generated_at
+SELECT a.game_id, g.date, g.opponent, a.own_runs, a.opponent_runs, a.result, g.is_final, a.players_analyzed, a.generated_at, a.updated_at
 FROM game_analyses a
 JOIN games g ON g.id = a.game_id
 ORDER BY a.generated_at DESC, a.game_id DESC
@@ -360,7 +438,7 @@ ORDER BY a.generated_at DESC, a.game_id DESC
 	var items []game.GameAnalysisListItem
 	for rows.Next() {
 		var item game.GameAnalysisListItem
-		if err := rows.Scan(&item.GameID, &item.Date, &item.Opponent, &item.OwnRuns, &item.OpponentRuns, &item.Result, &item.IsFinal, &item.PlayersAnalyzed, &item.GeneratedAt); err != nil {
+		if err := rows.Scan(&item.GameID, &item.Date, &item.Opponent, &item.OwnRuns, &item.OpponentRuns, &item.Result, &item.IsFinal, &item.PlayersAnalyzed, &item.GeneratedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -371,7 +449,7 @@ ORDER BY a.generated_at DESC, a.game_id DESC
 // getGame 查询单条比赛主记录并映射未找到错误。
 func (s *Store) getGame(id int64) (game.Game, error) {
 	row := s.db.QueryRow(`
-SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at
+SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at, updated_at
 FROM games
 WHERE id = ?
 `, id)
@@ -388,10 +466,11 @@ WHERE id = ?
 // getGameLineups 查询比赛的全部阵容记录。
 func (s *Store) getGameLineups(gameID int64) ([]game.GameLineup, error) {
 	rows, err := s.db.Query(`
-SELECT id, game_id, team, player, batting_order, starting_position
-FROM game_lineups
-WHERE game_id = ?
-ORDER BY team ASC, batting_order IS NULL ASC, batting_order ASC, id ASC
+SELECT l.id, l.game_id, COALESCE(l.player_id,0), COALESCE(p.player_key,''), l.team, l.player, l.batting_order, l.starting_position
+FROM game_lineups l
+LEFT JOIN players p ON p.id=l.player_id
+WHERE l.game_id = ?
+ORDER BY l.team ASC, l.batting_order IS NULL ASC, l.batting_order ASC, l.id ASC
 `, gameID)
 	if err != nil {
 		return nil, err
@@ -403,7 +482,7 @@ ORDER BY team ASC, batting_order IS NULL ASC, batting_order ASC, id ASC
 		var lineup game.GameLineup
 		var battingOrder sql.NullInt64
 		var startingPosition sql.NullInt64
-		if err := rows.Scan(&lineup.ID, &lineup.GameID, &lineup.Team, &lineup.Player, &battingOrder, &startingPosition); err != nil {
+		if err := rows.Scan(&lineup.ID, &lineup.GameID, &lineup.PlayerID, &lineup.PlayerKey, &lineup.Team, &lineup.Player, &battingOrder, &startingPosition); err != nil {
 			return nil, err
 		}
 		lineup.BattingOrder = nullIntPointer(battingOrder)
@@ -419,12 +498,15 @@ ORDER BY team ASC, batting_order IS NULL ASC, batting_order ASC, id ASC
 // getGameEvents 按比赛过程顺序查询全部事实事件。
 func (s *Store) getGameEvents(gameID int64) ([]game.GameEvent, error) {
 	rows, err := s.db.Query(`
-SELECT id, game_id, inning, half, play_no, sequence, event_kind, player, team, result,
-	related_player, pitch_sequence, base_from, base_to, reason, outs_on_play, runs_scored,
-	rbi_player, earned, value, description
-FROM game_events
-WHERE game_id = ?
-ORDER BY inning ASC, half ASC, play_no ASC, sequence ASC, id ASC
+SELECT e.id, e.game_id, COALESCE(e.player_id,0), COALESCE(p.player_key,''), e.inning, e.half, e.play_no, e.sequence, e.event_kind, e.player, e.team, e.result,
+	e.related_player, COALESCE(e.related_player_id,0), COALESCE(rp.player_key,''), e.pitch_sequence, e.base_from, e.base_to, e.reason, e.outs_on_play, e.runs_scored,
+	e.rbi_player, COALESCE(e.rbi_player_id,0), COALESCE(rb.player_key,''), e.earned, e.value, e.description
+FROM game_events e
+LEFT JOIN players p ON p.id=e.player_id
+LEFT JOIN players rp ON rp.id=e.related_player_id
+LEFT JOIN players rb ON rb.id=e.rbi_player_id
+WHERE e.game_id = ?
+ORDER BY e.inning ASC, e.half ASC, e.play_no ASC, e.sequence ASC, e.id ASC
 `, gameID)
 	if err != nil {
 		return nil, err
@@ -447,10 +529,14 @@ ORDER BY inning ASC, half ASC, play_no ASC, sequence ASC, id ASC
 
 // insertLineup 使用既有事务插入一条阵容记录。
 func insertLineup(tx *sql.Tx, lineup game.GameLineup) (int64, error) {
+	playerID, _, playerName, err := resolveGamePlayerTx(tx, lineup.GameID, lineup.Team, lineup.PlayerKey, lineup.Player)
+	if err != nil {
+		return 0, err
+	}
 	result, err := tx.Exec(`
-INSERT INTO game_lineups (game_id, team, player, batting_order, starting_position)
-VALUES (?, ?, ?, ?, ?)
-`, lineup.GameID, int(lineup.Team), lineup.Player, nullInt(lineup.BattingOrder), nullInt(lineup.StartingPosition))
+INSERT INTO game_lineups (game_id, player_id, team, player, batting_order, starting_position)
+VALUES (?, ?, ?, ?, ?, ?)
+`, lineup.GameID, nullID(playerID), int(lineup.Team), playerName, nullInt(lineup.BattingOrder), nullInt(lineup.StartingPosition))
 	if err != nil {
 		return 0, err
 	}
@@ -459,13 +545,29 @@ VALUES (?, ?, ?, ?, ?)
 
 // insertGameEvent 使用既有事务插入一条比赛事件。
 func insertGameEvent(tx *sql.Tx, event game.GameEvent) (int64, error) {
+	playerID, _, playerName, err := resolveGamePlayerTx(tx, event.GameID, event.Team, event.PlayerKey, event.Player)
+	if err != nil {
+		return 0, err
+	}
+	relatedTeam := game.TeamOwn
+	if event.Team == game.TeamOwn {
+		relatedTeam = game.TeamOpponent
+	}
+	relatedID, _, relatedName, err := resolveOptionalGamePlayerTx(tx, event.GameID, relatedTeam, event.RelatedPlayerKey, event.RelatedPlayer)
+	if err != nil {
+		return 0, err
+	}
+	rbiID, _, rbiName, err := resolveOptionalGamePlayerTx(tx, event.GameID, event.Team, event.RBIPlayerKey, event.RBIPlayer)
+	if err != nil {
+		return 0, err
+	}
 	result, err := tx.Exec(`
 INSERT INTO game_events (
-	game_id, inning, half, play_no, sequence, event_kind, player, team, result,
+	game_id, player_id, related_player_id, rbi_player_id, inning, half, play_no, sequence, event_kind, player, team, result,
 	related_player, pitch_sequence, base_from, base_to, reason, outs_on_play,
 	runs_scored, rbi_player, earned, value, description
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, event.GameID, event.Inning, int(event.Half), nullInt(event.PlayNo), event.Sequence, int(event.EventKind), event.Player, int(event.Team), event.Result, nullString(event.RelatedPlayer), nullString(event.PitchSequence), nullInt(event.BaseFrom), nullInt(event.BaseTo), nullRunnerReason(event.Reason), event.OutsOnPlay, event.RunsScored, nullString(event.RBIPlayer), nullBool(event.Earned), event.Value, nullString(event.Description))
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, event.GameID, nullID(playerID), nullID(relatedID), nullID(rbiID), event.Inning, int(event.Half), nullInt(event.PlayNo), event.Sequence, int(event.EventKind), playerName, int(event.Team), event.Result, nullString(relatedName), nullString(event.PitchSequence), nullInt(event.BaseFrom), nullInt(event.BaseTo), nullRunnerReason(event.Reason), event.OutsOnPlay, event.RunsScored, nullString(rbiName), nullBool(event.Earned), event.Value, nullString(event.Description))
 	if err != nil {
 		return 0, err
 	}
@@ -493,6 +595,7 @@ func scanGame(scanner gameScanner) (game.Game, error) {
 		&g.IsFinal,
 		&g.Raw,
 		&g.CreatedAt,
+		&g.UpdatedAt,
 	)
 	if err != nil {
 		return game.Game{}, err
@@ -516,6 +619,8 @@ func scanGameEvent(scanner gameScanner) (game.GameEvent, error) {
 	if err := scanner.Scan(
 		&event.ID,
 		&event.GameID,
+		&event.PlayerID,
+		&event.PlayerKey,
 		&event.Inning,
 		&event.Half,
 		&playNo,
@@ -525,6 +630,8 @@ func scanGameEvent(scanner gameScanner) (game.GameEvent, error) {
 		&event.Team,
 		&event.Result,
 		&relatedPlayer,
+		&event.RelatedPlayerID,
+		&event.RelatedPlayerKey,
 		&pitchSequence,
 		&baseFrom,
 		&baseTo,
@@ -532,6 +639,8 @@ func scanGameEvent(scanner gameScanner) (game.GameEvent, error) {
 		&event.OutsOnPlay,
 		&event.RunsScored,
 		&rbiPlayer,
+		&event.RBIPlayerID,
+		&event.RBIPlayerKey,
 		&earned,
 		&event.Value,
 		&description,
@@ -555,4 +664,53 @@ func gameExistsTx(tx *sql.Tx, gameID int64) (bool, error) {
 	var exists bool
 	err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM games WHERE id = ?)`, gameID).Scan(&exists)
 	return exists, err
+}
+
+func nullID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
+}
+
+func resolveOptionalGamePlayerTx(tx *sql.Tx, gameID int64, team game.Team, key, name string) (int64, string, string, error) {
+	if strings.TrimSpace(key) == "" && strings.TrimSpace(name) == "" {
+		return 0, "", "", nil
+	}
+	return resolveGamePlayerTx(tx, gameID, team, key, name)
+}
+
+func resolveGamePlayerTx(tx *sql.Tx, gameID int64, side game.Team, key, name string) (int64, string, string, error) {
+	key, name = strings.TrimSpace(key), strings.TrimSpace(name)
+	var teamID int64
+	column := "own_team_id"
+	if side == game.TeamOpponent {
+		column = "opponent_team_id"
+	}
+	if err := tx.QueryRow(`SELECT `+column+` FROM games WHERE id=?`, gameID).Scan(&teamID); err != nil {
+		return 0, "", "", err
+	}
+	if key != "" {
+		var id, actualTeamID int64
+		var actualName string
+		if err := tx.QueryRow(`SELECT id,team_id,name FROM players WHERE player_key=?`, key).Scan(&id, &actualTeamID, &actualName); errors.Is(err, sql.ErrNoRows) {
+			return 0, "", "", fmt.Errorf("player not found: %s", key)
+		} else if err != nil {
+			return 0, "", "", err
+		}
+		if actualTeamID != teamID || (name != "" && name != actualName) {
+			return 0, "", "", fmt.Errorf("identity_mismatch: player_key %s does not match team/name snapshot", key)
+		}
+		return id, key, actualName, nil
+	}
+	if name == "" {
+		return 0, "", "", errors.New("player identity is empty")
+	}
+	var id int64
+	if err := tx.QueryRow(`SELECT id,player_key FROM players WHERE team_id=? AND name=?`, teamID, name).Scan(&id, &key); errors.Is(err, sql.ErrNoRows) {
+		return 0, "", name, nil
+	} else if err != nil {
+		return 0, "", "", err
+	}
+	return id, key, name, nil
 }

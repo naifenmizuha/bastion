@@ -1,99 +1,66 @@
 ---
 name: manage-bastion-team
-description: "Use the teamops tool to query or change Bastion's authoritative baseball team data: players, training reports, games, performance analysis, lineups, drill recommendations, reviews, and approved training. Use for natural-language baseball team management tasks that need Bastion data, validation, analysis, or persistence."
+description: "Query and manage Bastion's authoritative baseball team data through the registered teamops tool. Use for team identity, rosters, players, reports, games, events, performance analysis, lineups, drill recommendations, reviews, approved training, and multi-step team-management workflows."
 ---
 
 # Manage Bastion Team
 
-Use `teamops` as the only authority for persisted team facts. Do not run the CLI
-through a shell, inspect SQLite, or invent unsupported commands. A new database
-must first be initialized with `team init`; register every opponent
-with `team add` before recording a game against it.
+Use `teamops` as the only authority for persisted team facts. Never inspect
+SQLite, run the CLI through a shell, or invent a command or flag.
 
-## CLI quick manual
+## Two-layer workflow
 
-Call `teamops` with `args` as separate command/flag tokens. Put structured
-payloads in `input`. Never include `--db`, `--format`, or `--input`; the tool
-owns those protocol details.
+1. Always read the one relevant CLI capability reference before calling
+   `teamops`. It is the exhaustive command and parameter layer.
+2. For a request requiring multiple dependent commands, also read the one
+   relevant application reference. Applications only compose registered CLI
+   commands; their names are never tool commands.
+3. Use the fewest calls and the narrowest list filters that satisfy the request.
 
-Read:
+Examples contain placeholders, never database facts. Resolve every team name, player,
+date, id, and current state through `teamops`.
 
-```json
-{"args":["player","read","--name","张三"]}
-```
+## Layer 1: CLI capabilities
 
-Team setup:
+- Team identity and registration: [teams.md](references/cli/teams.md)
+- Players and reports: [players-and-reports.md](references/cli/players-and-reports.md)
+- Games and analysis: [games-and-analysis.md](references/cli/games-and-analysis.md)
+- Candidate and official lineups: [lineups.md](references/cli/lineups.md)
+- Drill recommendations and reviews: [drills.md](references/cli/drills.md)
+- Tool protocol, batches, results, and errors: [protocol.md](references/cli/protocol.md)
 
-```json
-{"args":["team","init"],"input":{"own_team":"堡垒队"}}
-{"args":["team","add"],"input":{"name":"海港队"}}
-```
+For simple reads, stop after the CLI layer:
 
-Opponent players use the same player command with a team field and remain
-isolated from reports, drills, and generated own-team lineups:
+- "What team are we?" -> `team list`
+- "Who is on our roster?" -> `player list --scope own`
+- "What was the latest game?" -> `game list --limit 1`
 
-```json
-{"args":["player","add"],"input":{"team":"海港队","name":"王五","number":9,"bat":"left","throw":"right","positions":"outfield"}}
-```
+`team info` is not a command. If the CLI layer does not list a command, do not
+call it. Do not replace a direct team read with an unfiltered player list.
 
-Structured write:
+## Layer 2: application recipes
 
-```json
-{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}
-```
+Recipe names are not CLI commands.
 
-Batch read:
+- Initialize a team and roster: [team-onboarding.md](references/applications/team-onboarding.md)
+- Record a game and generate analysis: [game-recording.md](references/applications/game-recording.md)
+- Analyze a game or player period: [performance-analysis.md](references/applications/performance-analysis.md)
+- Validate, save, and activate a lineup: [lineup-lifecycle.md](references/applications/lineup-lifecycle.md)
+- Submit and review training recommendations: [training-review.md](references/applications/training-review.md)
 
-```json
-{"args":["batch","read"],"input":{"operations":[{"args":["player","read","--name","张三"]},{"args":["report","read","--name","张三","--date","2026-06-30"]}]}}
-```
+Do not load an application for a request that one CLI command can answer.
 
-Batch write:
+## Protocol invariants
 
-```json
-{"args":["batch","write"],"input":{"operations":[{"args":["player","add"],"input":{"name":"张三","number":18,"bat":"right","throw":"right","positions":"pitcher"}},{"args":["report","write"],"input":{"name":"张三","date":"2026-06-30","content":"打击训练","reflection":"节奏稳定"}}]}}
-```
+Pass subcommand and flag tokens in `args`; pass an object in `input` only when
+the CLI reference marks it required. Never include `--db`, `--format`, or
+`--input`; the tool owns those protocol details.
 
-Treat only top-level `ok: true` as success. Writes request confirmation and
-return `verification`; do not repeat a verified read-back. If `ok: false`, use
-the error code to correct input, ask once for missing facts, or stop.
+Treat only top-level `ok:true` as success. Writes request confirmation and may
+include verification; do not repeat a verified read-back. On `USER_CANCELLED`,
+stop immediately. On timeout, abort, or failed verification, report uncertainty
+and refresh current state before a future overlapping write.
 
-## Select references
-
-Read only the references needed for the request:
-
-- Players, roster, or self-training reports: [players-and-reports.md](references/players-and-reports.md)
-- Games, events, scores, or performance analysis: [games-and-analysis.md](references/games-and-analysis.md)
-- Candidate or official lineups: [lineups.md](references/lineups.md)
-- Drill recommendations, reviews, or approved training: [drills.md](references/drills.md)
-- Protocol, write safety, cancellation, or uncertainty: [protocol-and-safety.md](references/protocol-and-safety.md)
-
-Read multiple domain references only for genuinely cross-domain work.
-
-## Workflow
-
-1. Classify the task: read, validate/analyze, create candidate, or persist.
-2. Resolve names, ids, dates, and current state with reads. Never guess missing facts.
-3. Prefer `batch read` for several independent reads and `batch write` for one
-   user-approved ordered change that contains several commands.
-4. For complete game data, prefer `game write`; for incremental game data,
-   prefer `batch write`; after saving a game with analyzable events, run
-   `game analysis generate` then `game analysis read`.
-5. For lineups, `lineup write` only saves a candidate. If the user asks to
-   adopt, accept, or make it active, call `lineup accept` and say it was
-   accepted only after success.
-6. On `USER_CANCELLED`, stop immediately, do not retry, and state nothing was saved.
-7. Keep final answers short when requested. Distinguish persisted facts,
-   validated candidates, and model suggestions.
-
-## Derived memory
-
-Use `derived_memory` only for reusable conclusions from at least two distinct
-successful `teamops` reads. Search before repeating complex
-cross-game, cross-player, or cross-time analysis. Never use derived memory
-instead of refreshing authoritative facts required for a write. New memories are private.
-Publish only after explicit sharing requests: players may publish to `team`,
-while coaches and administrators may publish to `staff`
-or `team`. Withdraw or forget only with explicit user confirmation. Never ask
-for or pass user, team, role, player, or authority identity fields; the Runtime
-supplies the trusted principal.
+Use `derived_memory` only for reusable conclusions supported by at least two
+distinct successful reads. Never use it instead of an authoritative refresh for
+a write. Do not pass identity fields; Runtime supplies the trusted principal.

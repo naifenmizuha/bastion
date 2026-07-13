@@ -7,6 +7,8 @@ function validParamsFor(spec: (typeof commandSpecs)[number]) {
   for (const [name, flag] of Object.entries(spec.flags)) {
     if (flag.required) args.push(name, "1");
   }
+  if (spec.path.join(" ") === "player read") args.push("--key", "ply_test");
+  if (spec.path.join(" ") === "person analysis read") args.push("--player-key", "ply_test");
   return {
     args,
     ...(spec.input === "required" ? { input: {} } : {}),
@@ -15,7 +17,7 @@ function validParamsFor(spec: (typeof commandSpecs)[number]) {
 
 describe("command policy", () => {
   it("registers and accepts every current CLI command", () => {
-    assert.equal(commandSpecs.length, 35);
+    assert.equal(commandSpecs.length, 38);
     for (const spec of commandSpecs) {
       const parsed = parseCommand(validParamsFor(spec));
       assert.equal(parsed.spec, spec);
@@ -70,7 +72,7 @@ describe("command policy", () => {
   it("rejects missing, duplicate, and malformed flags", () => {
     assert.throws(
       () => parseCommand({ args: ["player", "read"] }),
-      /missing required flag/,
+      /exactly one/,
     );
     assert.throws(
       () =>

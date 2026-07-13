@@ -12,7 +12,7 @@ var _ person.Repository = (*Store)(nil)
 // ListFinalGamesInSpan 查询日期范围内已结束的比赛。
 func (s *Store) ListFinalGamesInSpan(from, to string) ([]game.Game, error) {
 	rows, err := s.db.Query(`
-SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at
+SELECT id,own_team_id,opponent_team_id, date, start_time, opponent, batting_side, own_score, opponent_score, is_final, raw, created_at, updated_at
 FROM games
 WHERE date >= ? AND date <= ? AND is_final = 1
 ORDER BY date ASC, id ASC
@@ -35,7 +35,7 @@ ORDER BY date ASC, id ASC
 // ListAnalysesInSpan 查询日期范围内已生成分析的比赛摘要。
 func (s *Store) ListAnalysesInSpan(from, to string) ([]game.GameAnalysisListItem, error) {
 	rows, err := s.db.Query(`
-SELECT a.game_id, g.date, g.opponent, a.own_runs, a.opponent_runs, a.result, g.is_final, a.players_analyzed, a.generated_at
+SELECT a.game_id, g.date, g.opponent, a.own_runs, a.opponent_runs, a.result, g.is_final, a.players_analyzed, a.generated_at, a.updated_at
 FROM game_analyses a
 JOIN games g ON g.id = a.game_id
 WHERE g.date >= ? AND g.date <= ?
@@ -48,7 +48,7 @@ ORDER BY g.date ASC, a.game_id ASC
 	var items []game.GameAnalysisListItem
 	for rows.Next() {
 		var item game.GameAnalysisListItem
-		if err := rows.Scan(&item.GameID, &item.Date, &item.Opponent, &item.OwnRuns, &item.OpponentRuns, &item.Result, &item.IsFinal, &item.PlayersAnalyzed, &item.GeneratedAt); err != nil {
+		if err := rows.Scan(&item.GameID, &item.Date, &item.Opponent, &item.OwnRuns, &item.OpponentRuns, &item.Result, &item.IsFinal, &item.PlayersAnalyzed, &item.GeneratedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

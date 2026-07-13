@@ -15,6 +15,19 @@ func TestNormalizeDate(t *testing.T) {
 	}
 }
 
+func TestNormalizeTime(t *testing.T) {
+	for _, value := range []string{"", "00:00", "01:05", "23:59"} {
+		if got, err := NormalizeTime(value); err != nil || got != value {
+			t.Fatalf("NormalizeTime(%q)=%q,%v", value, got, err)
+		}
+	}
+	for _, value := range []string{"638", "24:00", "12:60", "1:05"} {
+		if _, err := NormalizeTime(value); err == nil {
+			t.Fatalf("NormalizeTime(%q) should fail", value)
+		}
+	}
+}
+
 func TestNormalizeDateRejectsInvalidFormat(t *testing.T) {
 	_, err := NormalizeDate("2026-6-24")
 	if err == nil {

@@ -10,6 +10,8 @@ import io
 import json
 import os
 import shutil
+import sqlite3
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -44,6 +46,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("out/athletics-2025.sql"))
     parser.add_argument("--cache-dir", type=Path, default=Path("out/retrosheet/cache"))
+    parser.add_argument("--teamops-binary", type=Path, default=Path("out/teamops"))
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--source", default=SOURCE_URL, help=argparse.SUPPRESS)
@@ -104,6 +107,48 @@ def sql(value: object | None) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def export_schema_statements(teamops_binary: Path) -> tuple[list[str], int]:
+    binary = teamops_binary.resolve()
+    if not binary.is_file():
+        raise FileNotFoundError(f"teamops binary does not exist: {binary}")
+    with tempfile.TemporaryDirectory() as directory:
+        database = Path(directory) / "schema.db"
+        subprocess.run(
+            [str(binary), "--db", str(database), "schema", "init"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        connection = sqlite3.connect(database)
+        try:
+            business_rows = connection.execute(
+                "SELECT (SELECT count(*) FROM teams) + (SELECT count(*) FROM app_config)"
+            ).fetchone()[0]
+            if business_rows != 0:
+                raise ValueError("schema init unexpectedly created business rows")
+            version = connection.execute(
+                "SELECT version FROM schema_meta WHERE id=1"
+            ).fetchone()[0]
+            rows = connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+                ORDER BY CASE type
+                    WHEN 'table' THEN 0
+                    WHEN 'index' THEN 1
+                    WHEN 'trigger' THEN 2
+                    ELSE 3
+                END, name
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+    statements = [statement.rstrip().rstrip(";") + ";" for (statement,) in rows]
+    statements.append(
+        f"INSERT INTO schema_meta(id,version,updated_at) VALUES(1,{int(version)},{sql(SEED_TIME)});"
+    )
+    return statements, int(version)
+
+
 def integer(row: dict[str, str], key: str) -> int:
     value = row.get(key, "")
     return int(value) if value else 0
@@ -137,7 +182,36 @@ def date_text(value: str) -> str:
 def time_text(value: str) -> str | None:
     if not value:
         return None
-    return f"{value[:2]}:{value[2:]}" if len(value) == 4 and ":" not in value else value
+    if ":" in value:
+        parts = value.split(":")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValueError(f"invalid start time {value!r}")
+        hour, minute = map(int, parts)
+    elif value.isdigit() and len(value) in {3, 4}:
+        padded = value.zfill(4)
+        hour, minute = int(padded[:2]), int(padded[2:])
+    else:
+        raise ValueError(f"invalid start time {value!r}")
+    if hour > 23 or minute > 59:
+        raise ValueError(f"invalid start time {value!r}")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def referenced_players(teamstats: list[dict[str, str]], plays: list[dict[str, str]]) -> set[tuple[str, str]]:
+    references: set[tuple[str, str]] = set()
+    for row in teamstats:
+        for column in [*(f"start_l{i}" for i in range(1, 11)), *(f"start_f{i}" for i in range(1, 11))]:
+            if row.get(column):
+                references.add((row["team"], row[column]))
+    for row in plays:
+        batting, fielding = row.get("batteam", ""), row.get("pitteam", "")
+        for column in ("batter", "br1_pre", "br2_pre", "br3_pre", "br1_post", "br2_post", "br3_post", "run_b", "run1", "run2", "run3"):
+            if row.get(column):
+                references.add((batting, row[column]))
+        for column in ("pitcher", "pivot", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "prun_b", "prun1", "prun2", "prun3"):
+            if row.get(column):
+                references.add((fielding, row[column]))
+    return references
 
 
 def own_bats_top(game: dict[str, str]) -> bool:
@@ -252,7 +326,11 @@ def event_rows(play: dict[str, str], game_id: int, names: dict[str, str]) -> lis
     return result
 
 
-def generate_sql(source_zip: Path) -> tuple[str, dict[str, int]]:
+def generate_sql(
+    source_zip: Path,
+    schema_statements: list[str] | None = None,
+    schema_version: int = 2,
+) -> tuple[str, dict[str, int]]:
     with zipfile.ZipFile(source_zip) as archive:
         for required in SOURCE_FILES:
             if Path(required).name.lower() not in {Path(name).name.lower() for name in archive.namelist()}:
@@ -267,7 +345,12 @@ def generate_sql(source_zip: Path) -> tuple[str, dict[str, int]]:
         plays = [row for row in load_csv(archive, "plays.csv") if row.get("gid") in gids]
         player_rows = [row for row in load_csv(archive, "allplayers.csv") if row.get("season") == SEASON]
     names = {row["id"]: player_name(row) for row in player_rows if row.get("id") and player_name(row)}
-    own_players = {row["id"]: row for row in player_rows if row.get("team") == TEAM_ID}
+    profiles = {(row.get("team", ""), row["id"]): row for row in player_rows if row.get("id")}
+    profiles_by_id = {row["id"]: row for row in player_rows if row.get("id")}
+    references = referenced_players(teamstats, plays)
+    missing = sorted(player_id for _, player_id in references if player_id not in names)
+    if missing:
+        raise ValueError(f"missing allplayers row for referenced player {missing[0]}")
     opponents = sorted(({game["visteam"] for game in games} | {game["hometeam"] for game in games}) - {TEAM_ID})
     unknown_teams = [team for team in opponents if team not in TEAM_NAMES]
     if unknown_teams:
@@ -279,19 +362,27 @@ def generate_sql(source_zip: Path) -> tuple[str, dict[str, int]]:
         f"-- Source SHA-256: {sha256(source_zip)}",
         f"-- Selection: season={SEASON}, team={TEAM_ID}, game_type=regular-season",
         f"-- {ATTRIBUTION}",
-        "-- Apply only after TeamOps has created a fresh, uninitialized schema.",
+        "-- Standalone TeamOps database initialization; apply only to a new or empty SQLite file.",
+        "PRAGMA foreign_keys=ON;",
         "BEGIN IMMEDIATE;",
-        "CREATE TEMP TABLE _athletics_seed_guard(value INTEGER CHECK(value = 1));",
-        "INSERT INTO _athletics_seed_guard(value) SELECT CASE WHEN EXISTS(SELECT 1 FROM app_config WHERE id=1 AND initialized_at IS NULL) AND NOT EXISTS(SELECT 1 FROM games) THEN 1 ELSE 0 END;",
-        f"UPDATE teams SET name={sql(OWN_TEAM_NAME)},updated_at={sql(SEED_TIME)} WHERE id=(SELECT own_team_id FROM app_config WHERE id=1);",
-        f"UPDATE app_config SET initialized_at={sql(SEED_TIME)} WHERE id=1;",
     ]
+    if schema_statements:
+        lines.extend(["-- TeamOps schema generated from the current teamops binary.", *schema_statements])
+    lines.extend([
+        "CREATE TEMP TABLE _athletics_seed_guard(value INTEGER CHECK(value = 1));",
+        f"INSERT INTO _athletics_seed_guard(value) SELECT CASE WHEN (SELECT version FROM schema_meta WHERE id=1)={schema_version} AND NOT EXISTS(SELECT 1 FROM app_config) AND NOT EXISTS(SELECT 1 FROM teams) AND NOT EXISTS(SELECT 1 FROM players) AND NOT EXISTS(SELECT 1 FROM games) AND NOT EXISTS(SELECT 1 FROM training_reports) AND NOT EXISTS(SELECT 1 FROM drill_recommendations) AND NOT EXISTS(SELECT 1 FROM lineups) THEN 1 ELSE 0 END;",
+        f"INSERT INTO teams(name,created_at,updated_at) VALUES({sql(OWN_TEAM_NAME)},{sql(SEED_TIME)},{sql(SEED_TIME)});",
+        f"INSERT INTO app_config(id,own_team_id,initialized_at) VALUES(1,(SELECT id FROM teams WHERE name={sql(OWN_TEAM_NAME)}),{sql(SEED_TIME)});",
+    ])
     for team in opponents:
         lines.append(f"INSERT INTO teams(name,created_at,updated_at) VALUES({sql(TEAM_NAMES[team])},{sql(SEED_TIME)},{sql(SEED_TIME)});")
-    for row in sorted(own_players.values(), key=lambda value: value["id"]):
+    for ordinal, (team, player_id) in enumerate(sorted(references), 1):
+        row = profiles.get((team, player_id), profiles_by_id[player_id])
+        opaque_key = "ply_" + hashlib.sha256(f"athletics-2025-player-{ordinal}".encode()).hexdigest()[:32]
+        team_id_sql = "(SELECT own_team_id FROM app_config WHERE id=1)" if team == TEAM_ID else f"(SELECT id FROM teams WHERE name={sql(TEAM_NAMES[team])})"
         lines.append(
-            "INSERT INTO players(team_id,name,number,bat_hands,throw_hands,positions,updated_at) VALUES("
-            f"(SELECT own_team_id FROM app_config WHERE id=1),{sql(names[row['id']])},0,{hand_bits(row.get('bat',''))},"
+            "INSERT INTO players(player_key,team_id,name,number,bat_hands,throw_hands,positions,updated_at) VALUES("
+            f"{sql(opaque_key)},{team_id_sql},{sql(names[player_id])},0,{hand_bits(row.get('bat',''))},"
             f"{hand_bits(row.get('throw',''))},{position_bits(row)},{sql(SEED_TIME)});"
         )
 
@@ -301,7 +392,7 @@ def generate_sql(source_zip: Path) -> tuple[str, dict[str, int]]:
         opponent_id = game["hometeam"] if visitor_own else game["visteam"]
         own_score = integer(game, "vruns" if visitor_own else "hruns")
         opponent_score = integer(game, "hruns" if visitor_own else "vruns")
-        raw = json.dumps({"source": "Retrosheet", "gid": game["gid"]}, separators=(",", ":"))
+        raw = json.dumps({"source": "Retrosheet", "gid": game["gid"], "start_time_raw": game.get("starttime", "")}, separators=(",", ":"))
         lines.append(
             "INSERT INTO games(id,date,start_time,opponent,own_team_id,opponent_team_id,batting_side,own_score,opponent_score,is_final,raw,created_at,updated_at) VALUES("
             f"{game_ids[game['gid']]},{sql(date_text(game['date']))},{sql(time_text(game.get('starttime','')))},{sql(TEAM_NAMES[opponent_id])},"
@@ -328,14 +419,27 @@ def generate_sql(source_zip: Path) -> tuple[str, dict[str, int]]:
     plays.sort(key=lambda row: (game_ids[row["gid"]], integer(row, "pn")))
     for play in plays:
         for event in event_rows(play, game_ids[play["gid"]], names):
+            values = list(event)
+            for optional_index in (9, 10, 16, 19):
+                if values[optional_index] == "":
+                    values[optional_index] = None
             lines.append(
                 "INSERT INTO game_events(game_id,inning,half,play_no,sequence,event_kind,player,team,result,related_player,pitch_sequence,base_from,base_to,reason,outs_on_play,runs_scored,rbi_player,earned,value,description) VALUES("
-                + ",".join(sql(value) for value in event) + ");"
+                + ",".join(sql(value) for value in values) + ");"
             )
             event_count += 1
-    lines.extend(["DROP TABLE _athletics_seed_guard;", "COMMIT;", ""])
+    lines.extend([
+        "UPDATE game_lineups SET player_id=(SELECT p.id FROM players p JOIN games g ON g.id=game_lineups.game_id WHERE p.team_id=CASE game_lineups.team WHEN 0 THEN g.own_team_id ELSE g.opponent_team_id END AND p.name=game_lineups.player) WHERE player_id IS NULL;",
+        "UPDATE game_events SET player_id=(SELECT p.id FROM players p JOIN games g ON g.id=game_events.game_id WHERE p.team_id=CASE game_events.team WHEN 0 THEN g.own_team_id ELSE g.opponent_team_id END AND p.name=game_events.player) WHERE player_id IS NULL;",
+        "UPDATE game_events SET related_player_id=(SELECT p.id FROM players p JOIN games g ON g.id=game_events.game_id WHERE p.team_id=CASE game_events.team WHEN 0 THEN g.opponent_team_id ELSE g.own_team_id END AND p.name=game_events.related_player) WHERE related_player_id IS NULL AND related_player IS NOT NULL;",
+        "UPDATE game_events SET rbi_player_id=(SELECT p.id FROM players p JOIN games g ON g.id=game_events.game_id WHERE p.team_id=CASE game_events.team WHEN 0 THEN g.own_team_id ELSE g.opponent_team_id END AND p.name=game_events.rbi_player) WHERE rbi_player_id IS NULL AND rbi_player IS NOT NULL;",
+        "CREATE TEMP TABLE _athletics_seed_verify(value INTEGER CHECK(value = 1));",
+        f"INSERT INTO _athletics_seed_verify(value) SELECT CASE WHEN (SELECT count(*) FROM games)={len(games)} AND (SELECT count(*) FROM game_lineups)={sum(1 for line in lines if line.startswith('INSERT INTO game_lineups'))} AND (SELECT count(*) FROM game_events)={event_count} AND NOT EXISTS(SELECT 1 FROM pragma_foreign_key_check) AND (SELECT integrity_check FROM pragma_integrity_check)='ok' THEN 1 ELSE 0 END;",
+        "DROP TABLE _athletics_seed_verify;",
+        "DROP TABLE _athletics_seed_guard;", "COMMIT;", ""
+    ])
     return "\n".join(lines), {
-        "games": len(games), "players": len(own_players), "lineups": sum(1 for line in lines if line.startswith("INSERT INTO game_lineups")),
+        "games": len(games), "players": len(references), "lineups": sum(1 for line in lines if line.startswith("INSERT INTO game_lineups")),
         "events": event_count,
     }
 
@@ -347,7 +451,8 @@ def prepare(args: argparse.Namespace) -> tuple[Path, dict[str, int]]:
     cache = args.cache_dir.resolve() / "2025csvs.zip"
     if args.refresh or not cache.exists():
         download(args.source, cache)
-    content, counts = generate_sql(cache)
+    schema_statements, schema_version = export_schema_statements(args.teamops_binary)
+    content, counts = generate_sql(cache, schema_statements, schema_version)
     if args.source == SOURCE_URL and counts["games"] != 162:
         raise ValueError(f"expected 162 Athletics regular-season games, found {counts['games']}")
     output.parent.mkdir(parents=True, exist_ok=True)

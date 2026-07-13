@@ -25,6 +25,7 @@ import (
 type CLI struct {
 	DB       string      `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
 	Format   string      `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
+	Schema   SchemaCmd   `cmd:"" help:"Initialize the database schema."`
 	Batch    BatchCmd    `cmd:"" help:"Run multiple registered commands from one JSON input."`
 	Team     TeamCmd     `cmd:"" help:"Initialize and manage teams."`
 	Player   PlayerCmd   `cmd:"" help:"Manage players."`
@@ -35,6 +36,12 @@ type CLI struct {
 	Person   PersonCmd   `cmd:"" help:"Manage person cross-period analysis."`
 	Contract ContractCmd `cmd:"" help:"Print machine-readable structured input contracts."`
 }
+
+type SchemaCmd struct {
+	Init SchemaInitCmd `cmd:"" help:"Create or migrate the database schema."`
+}
+
+type SchemaInitCmd struct{}
 
 type BatchCmd struct {
 	Read  BatchReadCmd  `cmd:"" help:"Run multiple read-only commands."`
@@ -77,7 +84,9 @@ type PlayerAddCmd struct {
 }
 
 type PlayerReadCmd struct {
-	Name string `required:"" help:"Player name to read."`
+	Key  string `help:"Player key to read."`
+	ID   int64  `help:"Player numeric id to read."`
+	Name string `help:"Player name to read."`
 	Team string `help:"Optional team name; defaults to own team."`
 }
 
@@ -120,7 +129,13 @@ type GameCreateCmd struct {
 }
 
 type GameLineupCmd struct {
-	Add GameLineupAddCmd `cmd:"" help:"Add a lineup record."`
+	Add  GameLineupAddCmd  `cmd:"" help:"Add a lineup record."`
+	List GameLineupListCmd `cmd:"" help:"List lineup records for a game."`
+}
+
+type GameLineupListCmd struct {
+	GameID int64  `required:"" help:"Game id."`
+	Team   string `help:"Optional team: own,opponent."`
 }
 
 type GameLineupAddCmd struct {
@@ -130,6 +145,16 @@ type GameLineupAddCmd struct {
 type GameEventCmd struct {
 	Validate GameEventValidateCmd `cmd:"" help:"Validate game fact events without saving."`
 	Write    GameEventWriteCmd    `cmd:"" help:"Write game fact events."`
+	List     GameEventListCmd     `cmd:"" help:"List game fact events."`
+}
+
+type GameEventListCmd struct {
+	GameID    int64  `required:"" help:"Game id."`
+	Inning    int    `help:"Optional inning."`
+	Half      string `help:"Optional half: top,bottom."`
+	PlayerKey string `help:"Optional player key."`
+	Limit     int    `default:"100"`
+	Offset    int    `default:"0"`
 }
 
 type GameEventValidateCmd struct {
@@ -149,9 +174,13 @@ type GameScoreSetCmd struct {
 }
 
 type GameAnalysisCmd struct {
-	Generate GameAnalysisGenerateCmd `cmd:"" help:"Generate player performance analysis."`
-	Read     GameAnalysisReadCmd     `cmd:"" help:"Read generated player performance analysis."`
-	List     GameAnalysisListCmd     `cmd:"" help:"List games with generated analysis."`
+	Generate      GameAnalysisGenerateCmd      `cmd:"" help:"Generate player performance analysis."`
+	GenerateBatch GameAnalysisGenerateBatchCmd `cmd:"" name:"generate-batch" help:"Generate analyses for a date span."`
+	Read          GameAnalysisReadCmd          `cmd:"" help:"Read generated player performance analysis."`
+	List          GameAnalysisListCmd          `cmd:"" help:"List games with generated analysis."`
+}
+type GameAnalysisGenerateBatchCmd struct {
+	Input string `required:"" help:"Path to batch generation JSON input, or - for stdin."`
 }
 
 type GameAnalysisGenerateCmd struct {
@@ -159,9 +188,10 @@ type GameAnalysisGenerateCmd struct {
 }
 
 type GameAnalysisReadCmd struct {
-	GameID int64  `required:"" help:"Game id to read generated analysis for."`
-	Player string `help:"Optional player name; when set only this player's analysis is shown."`
-	Team   string `help:"Optional team name; defaults to own team."`
+	GameID    int64  `required:"" help:"Game id to read generated analysis for."`
+	Player    string `help:"Optional player name; when set only this player's analysis is shown."`
+	Team      string `help:"Optional team name; defaults to own team."`
+	PlayerKey string `help:"Optional player key; mutually exclusive with --player/--team."`
 }
 
 type GameAnalysisListCmd struct{}
@@ -171,7 +201,14 @@ type GameReadCmd struct {
 }
 
 type GameListCmd struct {
-	Date string `help:"Filter games by date, formatted as YYYY-MM-DD."`
+	Date     string `help:"Filter games by date, formatted as YYYY-MM-DD."`
+	From     string `help:"Inclusive start date."`
+	To       string `help:"Inclusive end date."`
+	Opponent string `help:"Opponent team name."`
+	Final    *bool  `help:"Filter final state."`
+	Result   string `help:"win,loss,tie,in_progress."`
+	Limit    int    `default:"100"`
+	Offset   int    `default:"0"`
 }
 
 type LineupCmd struct {
@@ -271,10 +308,11 @@ type PersonAnalysisCmd struct {
 }
 
 type PersonAnalysisReadCmd struct {
-	Name string `required:"" help:"Player name; must be a registered player."`
-	From string `required:"" help:"Span start date, formatted as YYYY-MM-DD, inclusive."`
-	To   string `required:"" help:"Span end date, formatted as YYYY-MM-DD, inclusive; must be >= --from."`
-	Team string `help:"Optional team name; defaults to own team."`
+	Name      string `help:"Player name; must be a registered player."`
+	PlayerKey string `help:"Player key; mutually exclusive with --name."`
+	From      string `required:"" help:"Span start date, formatted as YYYY-MM-DD, inclusive."`
+	To        string `required:"" help:"Span end date, formatted as YYYY-MM-DD, inclusive; must be >= --from."`
+	Team      string `help:"Optional team name; defaults to own team."`
 }
 
 type Context struct {
@@ -338,7 +376,7 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 		writeError(stdout, app.Format, err)
 		return err
 	}
-	if !initialized && ctx.Command() != "team init" && ctx.Command() != "team list" && ctx.Command() != "contract" {
+	if !initialized && ctx.Command() != "schema init" && ctx.Command() != "team init" && ctx.Command() != "team list" && ctx.Command() != "contract" {
 		err = errors.New("own team is not initialized; run team init first")
 		writeError(stdout, app.Format, err)
 		return err
@@ -361,6 +399,10 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 		writeError(stdout, app.Format, runErr)
 	}
 	return runErr
+}
+
+func (cmd *SchemaInitCmd) Run(ctx *Context) error {
+	return writeStructured(ctx, map[string]any{"schema": "ready"})
 }
 
 // Run executes a batch containing only read-only commands.
@@ -420,20 +462,45 @@ func (cmd *PlayerAddCmd) Run(ctx *Context) error {
 	if err := readJSONInput(ctx, cmd.Input, &input, []string{"player", "add"}); err != nil {
 		return err
 	}
-	player, err := ctx.PlayerService.AddPlayerForTeam(input.Name, input.Team, input.Number, input.Bat, input.Throw, input.Positions)
+	player, created, err := ctx.PlayerService.AddPlayerForTeamResult(input.Name, input.Team, input.Number, input.Bat, input.Throw, input.Positions)
 	if err != nil {
 		return err
 	}
-	return writeCommandResult(ctx, map[string]any{"resource": "player", "name": player.Name}, fmt.Sprintf("player added: %s\n", player.Name))
+	return writeCommandResult(ctx, map[string]any{"resource": "player", "id": player.ID, "player_key": player.Key, "name": player.Name, "created": created}, fmt.Sprintf("player saved: %s %s created=%t\n", player.Key, player.Name, created))
 }
 
 // Run 按名称读取并输出球员资料。
 func (cmd *PlayerReadCmd) Run(ctx *Context) error {
-	player, err := ctx.PlayerService.GetPlayerForTeam(cmd.Name, cmd.Team)
+	selectors := 0
+	if strings.TrimSpace(cmd.Key) != "" {
+		selectors++
+	}
+	if cmd.ID != 0 {
+		selectors++
+	}
+	if strings.TrimSpace(cmd.Name) != "" {
+		selectors++
+	}
+	if selectors != 1 {
+		return errors.New("exactly one of --key, --id, or --name is required")
+	}
+	if cmd.Team != "" && cmd.Name == "" {
+		return errors.New("--team is only valid with --name")
+	}
+	var value player.Player
+	var err error
+	switch {
+	case cmd.Key != "":
+		value, err = ctx.PlayerService.GetPlayerByKey(cmd.Key)
+	case cmd.ID != 0:
+		value, err = ctx.PlayerService.GetPlayerByID(cmd.ID)
+	default:
+		value, err = ctx.PlayerService.GetPlayerForTeam(cmd.Name, cmd.Team)
+	}
 	if err != nil {
 		return err
 	}
-	return printPlayer(ctx, player)
+	return printPlayer(ctx, value)
 }
 
 // Run 列出全部已登记球员。
@@ -533,11 +600,33 @@ func (cmd *GameLineupAddCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	id, err := ctx.GameService.AddGameLineup(input.GameID, team, input.Player, input.BattingOrder, startingPosition)
+	id, err := ctx.GameService.AddGameLineupIdentity(input.GameID, team, input.PlayerKey, input.Player, input.BattingOrder, startingPosition)
 	if err != nil {
 		return err
 	}
 	return writeCommandResult(ctx, map[string]any{"resource": "game_lineup", "id": id, "game_id": input.GameID}, fmt.Sprintf("lineup added: %d\n", id))
+}
+
+func (cmd *GameLineupListCmd) Run(ctx *Context) error {
+	details, err := ctx.GameService.GetGame(cmd.GameID)
+	if err != nil {
+		return err
+	}
+	var teamFilter *game.Team
+	if cmd.Team != "" {
+		value, err := parseTeam(cmd.Team)
+		if err != nil {
+			return err
+		}
+		teamFilter = &value
+	}
+	out := gameLineupListTOML{Lineups: []lineupTOML{}}
+	for _, row := range details.Lineups {
+		if teamFilter == nil || row.Team == *teamFilter {
+			out.Lineups = append(out.Lineups, lineupTOMLFrom(row))
+		}
+	}
+	return writeStructured(ctx, out)
 }
 
 // Run 读取并批量追加比赛事件。
@@ -550,11 +639,55 @@ func (cmd *GameEventWriteCmd) Run(ctx *Context) error {
 	if err != nil {
 		return err
 	}
-	count, err := ctx.GameService.WriteGameEvents(input.GameID, events)
+	result, err := ctx.GameService.WriteGameEventsResult(input.GameID, events)
 	if err != nil {
 		return err
 	}
-	return writeCommandResult(ctx, map[string]any{"resource": "game_events", "game_id": input.GameID, "count": count}, fmt.Sprintf("game events saved: %d\n", count))
+	return writeCommandResult(ctx, map[string]any{"resource": "game_events", "game_id": input.GameID, "inserted": result.Inserted, "updated": result.Updated, "idempotent": result.Idempotent}, fmt.Sprintf("game events saved: inserted=%d updated=%d\n", result.Inserted, result.Updated))
+}
+
+func (cmd *GameEventListCmd) Run(ctx *Context) error {
+	if cmd.Limit < 0 || cmd.Offset < 0 {
+		return errors.New("--limit and --offset must be >= 0")
+	}
+	details, err := ctx.GameService.GetGame(cmd.GameID)
+	if err != nil {
+		return err
+	}
+	var half *game.Half
+	if cmd.Half != "" {
+		value, err := parseHalf(cmd.Half)
+		if err != nil {
+			return err
+		}
+		half = &value
+	}
+	filtered := make([]game.GameEvent, 0)
+	for _, row := range details.Events {
+		if cmd.Inning > 0 && row.Inning != cmd.Inning {
+			continue
+		}
+		if half != nil && row.Half != *half {
+			continue
+		}
+		if cmd.PlayerKey != "" && row.PlayerKey != cmd.PlayerKey && row.RelatedPlayerKey != cmd.PlayerKey && row.RBIPlayerKey != cmd.PlayerKey {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	start := cmd.Offset
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	end := len(filtered)
+	if cmd.Limit > 0 && start+cmd.Limit < end {
+		end = start + cmd.Limit
+	}
+	out := gameEventListTOML{Events: make([]eventTOML, 0, end-start)}
+	for _, row := range filtered[start:end] {
+		out.Events = append(out.Events, eventTOMLFrom(row))
+	}
+	return writeStructured(ctx, out)
 }
 
 // Run validates a complete batch of game events without persisting it.
@@ -618,8 +751,60 @@ func (cmd *GameAnalysisGenerateCmd) Run(ctx *Context) error {
 	return writeCommandResult(ctx, map[string]any{"resource": "game_analysis", "id": id, "game_id": input.GameID}, fmt.Sprintf("game analysis generated: %d\n", id))
 }
 
+func (cmd *GameAnalysisGenerateBatchCmd) Run(ctx *Context) error {
+	var input gameAnalysisGenerateBatchInput
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"game", "analysis", "generate-batch"}); err != nil {
+		return err
+	}
+	mode := strings.TrimSpace(input.Mode)
+	if mode == "" {
+		mode = "missing"
+	}
+	if mode != "missing" && mode != "stale" && mode != "all" {
+		return fmt.Errorf("invalid mode %q, expected missing,stale,all", mode)
+	}
+	games, err := ctx.GameService.ListGamesFiltered(game.GameListFilter{From: input.From, To: input.To, Final: boolPointer(true)})
+	if err != nil {
+		return err
+	}
+	analyses, err := ctx.GameService.ListGameAnalyses()
+	if err != nil {
+		return err
+	}
+	byGame := map[int64]string{}
+	for _, item := range analyses {
+		byGame[item.GameID] = item.GeneratedAt
+	}
+	generated, skipped := 0, 0
+	failures := []map[string]any{}
+	for _, g := range games {
+		stamp, exists := byGame[g.ID]
+		should := mode == "all" || (mode == "missing" && !exists) || (mode == "stale" && exists && g.UpdatedAt > stamp)
+		if !should {
+			skipped++
+			continue
+		}
+		if _, err := ctx.GameService.GenerateGameAnalysis(g.ID); err != nil {
+			failures = append(failures, map[string]any{"game_id": g.ID, "error": err.Error()})
+			continue
+		}
+		generated++
+	}
+	return writeCommandResult(ctx, map[string]any{"resource": "game_analysis_batch", "mode": mode, "matched": len(games), "generated": generated, "skipped": skipped, "failed": len(failures), "failures": failures}, fmt.Sprintf("game analyses generated: %d failed=%d\n", generated, len(failures)))
+}
+
 // Run 读取比赛分析，可选筛选球员。
 func (cmd *GameAnalysisReadCmd) Run(ctx *Context) error {
+	if cmd.PlayerKey != "" && (cmd.Player != "" || cmd.Team != "") {
+		return errors.New("--player-key is mutually exclusive with --player and --team")
+	}
+	if cmd.PlayerKey != "" {
+		p, err := ctx.PlayerService.GetPlayerByKey(cmd.PlayerKey)
+		if err != nil {
+			return err
+		}
+		cmd.Player, cmd.Team = p.Name, p.Team
+	}
 	analysis, err := ctx.GameService.ReadGameAnalysisForTeam(cmd.GameID, cmd.Player, cmd.Team)
 	if err != nil {
 		return err
@@ -647,7 +832,7 @@ func (cmd *GameReadCmd) Run(ctx *Context) error {
 
 // Run 按可选日期列出比赛。
 func (cmd *GameListCmd) Run(ctx *Context) error {
-	games, err := ctx.GameService.ListGames(cmd.Date)
+	games, err := ctx.GameService.ListGamesFiltered(game.GameListFilter{Date: cmd.Date, From: cmd.From, To: cmd.To, Opponent: cmd.Opponent, Final: cmd.Final, Result: cmd.Result, Limit: cmd.Limit, Offset: cmd.Offset})
 	if err != nil {
 		return err
 	}
@@ -822,7 +1007,19 @@ func (cmd *DrillTrainingReadCmd) Run(ctx *Context) error {
 
 // Run 读取球员跨周期表现分析。
 func (cmd *PersonAnalysisReadCmd) Run(ctx *Context) error {
-	result, err := ctx.PersonService.ReadPersonAnalysisForTeam(cmd.Name, cmd.Team, cmd.From, cmd.To)
+	if (strings.TrimSpace(cmd.Name) == "") == (strings.TrimSpace(cmd.PlayerKey) == "") {
+		return errors.New("exactly one of --name or --player-key is required")
+	}
+	var result person.AnalysisResult
+	var err error
+	if cmd.PlayerKey != "" {
+		if cmd.Team != "" {
+			return errors.New("--team is only valid with --name")
+		}
+		result, err = ctx.PersonService.ReadPersonAnalysisByKey(cmd.PlayerKey, cmd.From, cmd.To)
+	} else {
+		result, err = ctx.PersonService.ReadPersonAnalysisForTeam(cmd.Name, cmd.Team, cmd.From, cmd.To)
+	}
 	if err != nil {
 		return err
 	}
@@ -1163,6 +1360,8 @@ func errorCode(err error) string {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "identity_mismatch"):
+		return "identity_mismatch"
 	case strings.Contains(message, "missing required"):
 		return "missing_required"
 	case strings.Contains(message, "unknown field"):
@@ -1202,6 +1401,7 @@ type playerListTOML struct {
 
 type playerTOML struct {
 	ID        int64  `toml:"id"`
+	PlayerKey string `toml:"player_key"`
 	Team      string `toml:"team"`
 	Scope     string `toml:"scope"`
 	Name      string `toml:"name"`
@@ -1209,17 +1409,19 @@ type playerTOML struct {
 	Bat       string `toml:"bat"`
 	Throw     string `toml:"throw"`
 	Positions string `toml:"positions"`
+	UpdatedAt string `toml:"updated_at"`
 }
 
 // playerTOMLFrom 将球员领域对象转换为 TOML 输出对象。
 func playerTOMLFrom(p player.Player) playerTOML {
 	return playerTOML{
-		ID: p.ID, Team: p.Team, Scope: p.Scope,
+		ID: p.ID, PlayerKey: p.Key, Team: p.Team, Scope: p.Scope,
 		Name:      p.Name,
 		Number:    p.Number,
 		Bat:       player.FormatHands(p.Bat),
 		Throw:     player.FormatHands(p.Throw),
 		Positions: player.FormatPositions(p.Positions),
+		UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -1228,19 +1430,25 @@ type reportReadTOML struct {
 }
 
 type reportTOML struct {
+	ID         int64  `toml:"id"`
+	PlayerID   int64  `toml:"player_id"`
 	Name       string `toml:"name"`
 	Date       string `toml:"date"`
 	Content    string `toml:"content"`
 	Reflection string `toml:"reflection"`
+	UpdatedAt  string `toml:"updated_at"`
 }
 
 // reportTOMLFrom 将训练报告转换为 TOML 输出对象。
 func reportTOMLFrom(r report.Report) reportTOML {
 	return reportTOML{
+		ID:         r.ID,
+		PlayerID:   r.PlayerID,
 		Name:       r.Name,
 		Date:       r.Date,
 		Content:    r.Content,
 		Reflection: r.Reflection,
+		UpdatedAt:  r.UpdatedAt,
 	}
 }
 
@@ -1260,9 +1468,11 @@ type teamAddInput struct {
 	Name string `json:"name"`
 }
 type teamTOML struct {
-	ID    int64  `toml:"id"`
-	Name  string `toml:"name"`
-	Scope string `toml:"scope"`
+	ID        int64  `toml:"id"`
+	Name      string `toml:"name"`
+	Scope     string `toml:"scope"`
+	CreatedAt string `toml:"created_at"`
+	UpdatedAt string `toml:"updated_at"`
 }
 type teamReadTOML struct {
 	Team teamTOML `toml:"team"`
@@ -1272,7 +1482,7 @@ type teamListTOML struct {
 }
 
 func teamTOMLFrom(t team.Team) teamTOML {
-	return teamTOML{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}
+	return teamTOML{ID: t.ID, Name: t.Name, Scope: string(t.Scope), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
 }
 
 type reportWriteInput struct {
@@ -1348,6 +1558,7 @@ type gameLineupAddInput struct {
 	GameID           int64   `json:"game_id"`
 	Team             string  `json:"team"`
 	Player           string  `json:"player"`
+	PlayerKey        string  `json:"player_key"`
 	BattingOrder     *int    `json:"batting_order"`
 	StartingPosition *string `json:"starting_position"`
 }
@@ -1365,6 +1576,12 @@ type gameScoreSetInput struct {
 
 type gameAnalysisGenerateInput struct {
 	GameID int64 `json:"game_id"`
+}
+
+type gameAnalysisGenerateBatchInput struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Mode string `json:"mode"`
 }
 
 type generatedLineupInput struct {
@@ -1405,30 +1622,34 @@ type drillWriteInput struct {
 type lineupJSON struct {
 	Team             string  `json:"team"`
 	Player           string  `json:"player"`
+	PlayerKey        string  `json:"player_key"`
 	BattingOrder     *int    `json:"batting_order"`
 	StartingPosition *string `json:"starting_position"`
 }
 
 type eventJSON struct {
-	Inning        int     `json:"inning"`
-	Half          string  `json:"half"`
-	PlayNo        *int    `json:"play_no"`
-	Sequence      int     `json:"sequence"`
-	EventKind     string  `json:"event_kind"`
-	Player        string  `json:"player"`
-	Team          string  `json:"team"`
-	Result        string  `json:"result"`
-	RelatedPlayer string  `json:"related_player"`
-	PitchSequence string  `json:"pitch_sequence"`
-	BaseFrom      *int    `json:"base_from"`
-	BaseTo        *int    `json:"base_to"`
-	Reason        *string `json:"reason"`
-	OutsOnPlay    int     `json:"outs_on_play"`
-	RunsScored    int     `json:"runs_scored"`
-	RBIPlayer     string  `json:"rbi_player"`
-	Earned        *bool   `json:"earned"`
-	Value         int     `json:"value"`
-	Description   string  `json:"description"`
+	Inning           int     `json:"inning"`
+	Half             string  `json:"half"`
+	PlayNo           *int    `json:"play_no"`
+	Sequence         int     `json:"sequence"`
+	EventKind        string  `json:"event_kind"`
+	Player           string  `json:"player"`
+	PlayerKey        string  `json:"player_key"`
+	Team             string  `json:"team"`
+	Result           string  `json:"result"`
+	RelatedPlayer    string  `json:"related_player"`
+	RelatedPlayerKey string  `json:"related_player_key"`
+	PitchSequence    string  `json:"pitch_sequence"`
+	BaseFrom         *int    `json:"base_from"`
+	BaseTo           *int    `json:"base_to"`
+	Reason           *string `json:"reason"`
+	OutsOnPlay       int     `json:"outs_on_play"`
+	RunsScored       int     `json:"runs_scored"`
+	RBIPlayer        string  `json:"rbi_player"`
+	RBIPlayerKey     string  `json:"rbi_player_key"`
+	Earned           *bool   `json:"earned"`
+	Value            int     `json:"value"`
+	Description      string  `json:"description"`
 }
 
 type eventValidationIssue struct {
@@ -1474,9 +1695,9 @@ func validateEventRecords(gameID int64, records []eventJSON) []eventValidationIs
 				EventIndex: index, Field: "result", Code: "invalid_value", Expected: expected,
 			})
 		}
-		if strings.TrimSpace(record.Player) == "" {
+		if strings.TrimSpace(record.Player) == "" && strings.TrimSpace(record.PlayerKey) == "" {
 			issues = append(issues, eventValidationIssue{
-				EventIndex: index, Field: "player", Code: "missing_required", Expected: "non-empty string",
+				EventIndex: index, Field: "player", Code: "missing_required", Expected: "player or player_key",
 			})
 		}
 		if _, err := parseTeam(record.Team); err != nil {
@@ -1501,7 +1722,7 @@ func validateEventRecords(gameID int64, records []eventJSON) []eventValidationIs
 		}
 		switch kind {
 		case game.EventKindPlateResult:
-			if strings.TrimSpace(record.RelatedPlayer) == "" {
+			if strings.TrimSpace(record.RelatedPlayer) == "" && strings.TrimSpace(record.RelatedPlayerKey) == "" {
 				issues = append(issues, eventValidationIssue{
 					EventIndex: index, Field: "related_player", Code: "missing_required", Expected: "reported opposing player",
 				})
@@ -1586,6 +1807,7 @@ func lineupsFromJSON(records []lineupJSON) ([]game.GameLineup, error) {
 		lineups = append(lineups, game.GameLineup{
 			Team:             team,
 			Player:           record.Player,
+			PlayerKey:        record.PlayerKey,
 			BattingOrder:     record.BattingOrder,
 			StartingPosition: startingPosition,
 		})
@@ -1625,25 +1847,28 @@ func eventsFromJSON(records []eventJSON) ([]game.GameEvent, error) {
 			reason = &parsed
 		}
 		events = append(events, game.GameEvent{
-			Inning:        record.Inning,
-			Half:          half,
-			PlayNo:        record.PlayNo,
-			Sequence:      record.Sequence,
-			EventKind:     kind,
-			Player:        record.Player,
-			Team:          team,
-			Result:        result,
-			RelatedPlayer: record.RelatedPlayer,
-			PitchSequence: record.PitchSequence,
-			BaseFrom:      record.BaseFrom,
-			BaseTo:        record.BaseTo,
-			Reason:        reason,
-			OutsOnPlay:    record.OutsOnPlay,
-			RunsScored:    record.RunsScored,
-			RBIPlayer:     record.RBIPlayer,
-			Earned:        record.Earned,
-			Value:         record.Value,
-			Description:   record.Description,
+			Inning:           record.Inning,
+			Half:             half,
+			PlayNo:           record.PlayNo,
+			Sequence:         record.Sequence,
+			EventKind:        kind,
+			Player:           record.Player,
+			PlayerKey:        record.PlayerKey,
+			Team:             team,
+			Result:           result,
+			RelatedPlayer:    record.RelatedPlayer,
+			RelatedPlayerKey: record.RelatedPlayerKey,
+			PitchSequence:    record.PitchSequence,
+			BaseFrom:         record.BaseFrom,
+			BaseTo:           record.BaseTo,
+			Reason:           reason,
+			OutsOnPlay:       record.OutsOnPlay,
+			RunsScored:       record.RunsScored,
+			RBIPlayer:        record.RBIPlayer,
+			RBIPlayerKey:     record.RBIPlayerKey,
+			Earned:           record.Earned,
+			Value:            record.Value,
+			Description:      record.Description,
 		})
 	}
 	if events == nil {
@@ -1896,6 +2121,15 @@ type gameDetailsTOML struct {
 	Events  []eventTOML  `toml:"events"`
 }
 
+type gameLineupListTOML struct {
+	Lineups []lineupTOML `toml:"lineups"`
+}
+type gameEventListTOML struct {
+	Events []eventTOML `toml:"events"`
+}
+
+func boolPointer(value bool) *bool { return &value }
+
 type gameListTOML struct {
 	Games []gameTOML `toml:"games"`
 }
@@ -1914,6 +2148,7 @@ type gameTOML struct {
 	IsFinal        bool   `toml:"is_final"`
 	Raw            string `toml:"raw"`
 	CreatedAt      string `toml:"created_at"`
+	UpdatedAt      string `toml:"updated_at"`
 }
 
 // gameTOMLFrom 将比赛转换为 TOML 输出对象。
@@ -1932,11 +2167,14 @@ func gameTOMLFrom(g game.Game) gameTOML {
 		IsFinal:        g.IsFinal,
 		Raw:            g.Raw,
 		CreatedAt:      g.CreatedAt,
+		UpdatedAt:      g.UpdatedAt,
 	}
 }
 
 type lineupTOML struct {
 	ID               int64   `toml:"id"`
+	PlayerID         int64   `toml:"player_id"`
+	PlayerKey        string  `toml:"player_key"`
 	Team             string  `toml:"team"`
 	Player           string  `toml:"player"`
 	BattingOrder     *int    `toml:"batting_order,omitempty"`
@@ -1947,6 +2185,8 @@ type lineupTOML struct {
 func lineupTOMLFrom(row game.GameLineup) lineupTOML {
 	return lineupTOML{
 		ID:               row.ID,
+		PlayerID:         row.PlayerID,
+		PlayerKey:        row.PlayerKey,
 		Team:             formatTeam(row.Team),
 		Player:           row.Player,
 		BattingOrder:     row.BattingOrder,
@@ -1955,51 +2195,63 @@ func lineupTOMLFrom(row game.GameLineup) lineupTOML {
 }
 
 type eventTOML struct {
-	ID            int64   `toml:"id"`
-	Inning        int     `toml:"inning"`
-	Half          string  `toml:"half"`
-	PlayNo        *int    `toml:"play_no,omitempty"`
-	Sequence      int     `toml:"sequence"`
-	EventKind     string  `toml:"event_kind"`
-	Player        string  `toml:"player"`
-	Team          string  `toml:"team"`
-	Result        string  `toml:"result"`
-	RelatedPlayer string  `toml:"related_player"`
-	PitchSequence string  `toml:"pitch_sequence"`
-	BaseFrom      *int    `toml:"base_from,omitempty"`
-	BaseTo        *int    `toml:"base_to,omitempty"`
-	Reason        *string `toml:"reason,omitempty"`
-	OutsOnPlay    int     `toml:"outs_on_play"`
-	RunsScored    int     `toml:"runs_scored"`
-	RBIPlayer     string  `toml:"rbi_player"`
-	Earned        *bool   `toml:"earned,omitempty"`
-	Value         int     `toml:"value"`
-	Description   string  `toml:"description"`
+	ID               int64   `toml:"id"`
+	PlayerID         int64   `toml:"player_id"`
+	PlayerKey        string  `toml:"player_key"`
+	Inning           int     `toml:"inning"`
+	Half             string  `toml:"half"`
+	PlayNo           *int    `toml:"play_no,omitempty"`
+	Sequence         int     `toml:"sequence"`
+	EventKind        string  `toml:"event_kind"`
+	Player           string  `toml:"player"`
+	Team             string  `toml:"team"`
+	Result           string  `toml:"result"`
+	RelatedPlayer    string  `toml:"related_player"`
+	RelatedPlayerID  int64   `toml:"related_player_id"`
+	RelatedPlayerKey string  `toml:"related_player_key"`
+	PitchSequence    string  `toml:"pitch_sequence"`
+	BaseFrom         *int    `toml:"base_from,omitempty"`
+	BaseTo           *int    `toml:"base_to,omitempty"`
+	Reason           *string `toml:"reason,omitempty"`
+	OutsOnPlay       int     `toml:"outs_on_play"`
+	RunsScored       int     `toml:"runs_scored"`
+	RBIPlayer        string  `toml:"rbi_player"`
+	RBIPlayerID      int64   `toml:"rbi_player_id"`
+	RBIPlayerKey     string  `toml:"rbi_player_key"`
+	Earned           *bool   `toml:"earned,omitempty"`
+	Value            int     `toml:"value"`
+	Description      string  `toml:"description"`
 }
 
 // eventTOMLFrom 将比赛事件转换为 TOML 输出对象。
 func eventTOMLFrom(row game.GameEvent) eventTOML {
 	return eventTOML{
-		ID:            row.ID,
-		Inning:        row.Inning,
-		Half:          formatHalf(row.Half),
-		PlayNo:        row.PlayNo,
-		Sequence:      row.Sequence,
-		EventKind:     formatEventKind(row.EventKind),
-		Player:        row.Player,
-		Team:          formatTeam(row.Team),
-		Result:        formatEventResult(row.EventKind, row.Result),
-		RelatedPlayer: row.RelatedPlayer,
-		PitchSequence: row.PitchSequence,
-		BaseFrom:      row.BaseFrom,
-		BaseTo:        row.BaseTo,
-		Reason:        runnerReasonString(row.Reason),
-		OutsOnPlay:    row.OutsOnPlay,
-		RunsScored:    row.RunsScored,
-		RBIPlayer:     row.RBIPlayer,
-		Earned:        row.Earned,
-		Value:         row.Value,
-		Description:   row.Description,
+		ID:               row.ID,
+		PlayerID:         row.PlayerID,
+		PlayerKey:        row.PlayerKey,
+		Inning:           row.Inning,
+		Half:             formatHalf(row.Half),
+		PlayNo:           row.PlayNo,
+		Sequence:         row.Sequence,
+		EventKind:        formatEventKind(row.EventKind),
+		Player:           row.Player,
+		Team:             formatTeam(row.Team),
+		Result:           formatEventResult(row.EventKind, row.Result),
+		RelatedPlayer:    row.RelatedPlayer,
+		RelatedPlayerID:  row.RelatedPlayerID,
+		RelatedPlayerKey: row.RelatedPlayerKey,
+		PitchSequence:    row.PitchSequence,
+		BaseFrom:         row.BaseFrom,
+		BaseTo:           row.BaseTo,
+		Reason:           runnerReasonString(row.Reason),
+		OutsOnPlay:       row.OutsOnPlay,
+		RunsScored:       row.RunsScored,
+		RBIPlayer:        row.RBIPlayer,
+		RBIPlayerID:      row.RBIPlayerID,
+		RBIPlayerKey:     row.RBIPlayerKey,
+		Earned:           row.Earned,
+		Value:            row.Value,
+		Description:      row.Description,
 	}
 }
 
@@ -2024,6 +2276,7 @@ type gameAnalysisHeaderTOML struct {
 	IsFinal         bool   `toml:"is_final"`
 	PlayersAnalyzed int    `toml:"players_analyzed"`
 	GeneratedAt     string `toml:"generated_at"`
+	UpdatedAt       string `toml:"updated_at"`
 }
 
 // gameAnalysisHeaderTOMLFrom 转换比赛分析头部信息。
@@ -2039,11 +2292,14 @@ func gameAnalysisHeaderTOMLFrom(row game.GameAnalysis) gameAnalysisHeaderTOML {
 		IsFinal:         row.IsFinal,
 		PlayersAnalyzed: row.PlayersAnalyzed,
 		GeneratedAt:     row.GeneratedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
 }
 
 type playerSummaryTOML struct {
 	TeamID               int64  `toml:"team_id"`
+	PlayerID             int64  `toml:"player_id"`
+	PlayerKey            string `toml:"player_key"`
 	Player               string `toml:"player"`
 	BattingOrder         *int   `toml:"batting_order,omitempty"`
 	Positions            string `toml:"positions"`
@@ -2059,6 +2315,8 @@ type playerSummaryTOML struct {
 func playerSummaryTOMLFrom(row game.PlayerPerformanceSummary) playerSummaryTOML {
 	return playerSummaryTOML{
 		TeamID:               row.TeamID,
+		PlayerID:             row.PlayerID,
+		PlayerKey:            row.PlayerKey,
 		Player:               row.Player,
 		BattingOrder:         row.BattingOrder,
 		Positions:            row.Positions,
@@ -2073,6 +2331,8 @@ func playerSummaryTOMLFrom(row game.PlayerPerformanceSummary) playerSummaryTOML 
 
 type battingTOML struct {
 	TeamID                     int64   `toml:"team_id"`
+	PlayerID                   int64   `toml:"player_id"`
+	PlayerKey                  string  `toml:"player_key"`
 	Player                     string  `toml:"player"`
 	PA                         int     `toml:"pa"`
 	AtBats                     int     `toml:"at_bats"`
@@ -2097,6 +2357,8 @@ type battingTOML struct {
 func battingTOMLFrom(row game.PlayerBattingStats) battingTOML {
 	return battingTOML{
 		TeamID:                     row.TeamID,
+		PlayerID:                   row.PlayerID,
+		PlayerKey:                  row.PlayerKey,
 		Player:                     row.Player,
 		PA:                         row.PA,
 		AtBats:                     row.AtBats,
@@ -2120,6 +2382,8 @@ func battingTOMLFrom(row game.PlayerBattingStats) battingTOML {
 
 type baserunningTOML struct {
 	TeamID               int64   `toml:"team_id"`
+	PlayerID             int64   `toml:"player_id"`
+	PlayerKey            string  `toml:"player_key"`
 	Player               string  `toml:"player"`
 	Runs                 int     `toml:"runs"`
 	StolenBases          int     `toml:"stolen_bases"`
@@ -2134,6 +2398,8 @@ type baserunningTOML struct {
 func baserunningTOMLFrom(row game.PlayerBaserunningStats) baserunningTOML {
 	return baserunningTOML{
 		TeamID:               row.TeamID,
+		PlayerID:             row.PlayerID,
+		PlayerKey:            row.PlayerKey,
 		Player:               row.Player,
 		Runs:                 row.Runs,
 		StolenBases:          row.StolenBases,
@@ -2147,6 +2413,8 @@ func baserunningTOMLFrom(row game.PlayerBaserunningStats) baserunningTOML {
 
 type pitchingTOML struct {
 	TeamID             int64    `toml:"team_id"`
+	PlayerID           int64    `toml:"player_id"`
+	PlayerKey          string   `toml:"player_key"`
 	Player             string   `toml:"player"`
 	OutsRecorded       int      `toml:"outs_recorded"`
 	InningsPitched     float64  `toml:"innings_pitched"`
@@ -2171,6 +2439,8 @@ type pitchingTOML struct {
 func pitchingTOMLFrom(row game.PlayerPitchingStats) pitchingTOML {
 	return pitchingTOML{
 		TeamID:             row.TeamID,
+		PlayerID:           row.PlayerID,
+		PlayerKey:          row.PlayerKey,
 		Player:             row.Player,
 		OutsRecorded:       row.OutsRecorded,
 		InningsPitched:     row.InningsPitched,
@@ -2194,6 +2464,8 @@ func pitchingTOMLFrom(row game.PlayerPitchingStats) pitchingTOML {
 
 type fieldingTOML struct {
 	TeamID             int64   `toml:"team_id"`
+	PlayerID           int64   `toml:"player_id"`
+	PlayerKey          string  `toml:"player_key"`
 	Player             string  `toml:"player"`
 	Positions          string  `toml:"positions"`
 	Putouts            int     `toml:"putouts"`
@@ -2210,6 +2482,8 @@ type fieldingTOML struct {
 func fieldingTOMLFrom(row game.PlayerFieldingStats) fieldingTOML {
 	return fieldingTOML{
 		TeamID:             row.TeamID,
+		PlayerID:           row.PlayerID,
+		PlayerKey:          row.PlayerKey,
 		Player:             row.Player,
 		Positions:          row.Positions,
 		Putouts:            row.Putouts,
@@ -2463,6 +2737,7 @@ type gameAnalysisListItemTOML struct {
 	IsFinal         bool   `toml:"is_final"`
 	PlayersAnalyzed int    `toml:"players_analyzed"`
 	GeneratedAt     string `toml:"generated_at"`
+	UpdatedAt       string `toml:"updated_at"`
 }
 
 // gameAnalysisListItemTOMLFrom 转换比赛分析列表项。
@@ -2478,6 +2753,7 @@ func gameAnalysisListItemTOMLFrom(row game.GameAnalysisListItem) gameAnalysisLis
 		IsFinal:         row.IsFinal,
 		PlayersAnalyzed: row.PlayersAnalyzed,
 		GeneratedAt:     row.GeneratedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
 }
 
@@ -2495,6 +2771,7 @@ type drillTrainingReadTOML struct {
 
 type drillRecommendationTOML struct {
 	ID            int64  `toml:"id"`
+	PlayerID      int64  `toml:"player_id"`
 	Name          string `toml:"name"`
 	Type          string `toml:"type"`
 	URL           string `toml:"url"`
@@ -2507,12 +2784,14 @@ type drillRecommendationTOML struct {
 	ReviewNote    string `toml:"review_note"`
 	ReviewedAt    string `toml:"reviewed_at"`
 	CreatedAt     string `toml:"created_at"`
+	UpdatedAt     string `toml:"updated_at"`
 }
 
 // drillRecommendationTOMLFrom 转换训练推荐。
 func drillRecommendationTOMLFrom(row drill.Recommendation) drillRecommendationTOML {
 	return drillRecommendationTOML{
 		ID:            row.ID,
+		PlayerID:      row.PlayerID,
 		Name:          row.Name,
 		Type:          formatDrillType(row.Type),
 		URL:           row.URL,
@@ -2525,6 +2804,7 @@ func drillRecommendationTOMLFrom(row drill.Recommendation) drillRecommendationTO
 		ReviewNote:    row.ReviewNote,
 		ReviewedAt:    row.ReviewedAt,
 		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
 	}
 }
 

@@ -32,7 +32,7 @@ export const commandSpecs: readonly CommandSpec[] = [
   command(["batch", "read"], { input: "required" }),
   command(["batch", "write"], { input: "required", risk: "write" }),
   command(["player", "add"], { input: "required", risk: "write" }),
-  command(["player", "read"], { flags: { "--name": { required: true }, "--team": {} } }),
+  command(["player", "read"], { flags: { "--key": {}, "--id": {}, "--name": {}, "--team": {} } }),
   command(["player", "list"], { flags: { "--team": {}, "--scope": {} } }),
   command(["report", "write"], { input: "required", risk: "write" }),
   command(["report", "read"], {
@@ -41,23 +41,27 @@ export const commandSpecs: readonly CommandSpec[] = [
   command(["game", "write"], { input: "required", risk: "write" }),
   command(["game", "create"], { input: "required", risk: "write" }),
   command(["game", "lineup", "add"], { input: "required", risk: "write" }),
+  command(["game", "lineup", "list"], { flags: { "--game-id": { required: true }, "--team": {} } }),
   command(["game", "event", "write"], { input: "required", risk: "write" }),
   command(["game", "event", "validate"], { input: "required" }),
+  command(["game", "event", "list"], { flags: { "--game-id": { required: true }, "--inning": {}, "--half": {}, "--player-key": {}, "--limit": {}, "--offset": {} } }),
   command(["game", "score", "set"], { input: "required", risk: "write" }),
   command(["game", "analysis", "generate"], {
     input: "required",
     risk: "compute_write",
   }),
+  command(["game", "analysis", "generate-batch"], { input: "required", risk: "compute_write" }),
   command(["game", "analysis", "read"], {
     flags: {
       "--game-id": { required: true },
       "--player": {},
       "--team": {},
+      "--player-key": {},
     },
   }),
   command(["game", "analysis", "list"]),
   command(["game", "read"], { flags: { "--id": { required: true } } }),
-  command(["game", "list"], { flags: { "--date": {} } }),
+  command(["game", "list"], { flags: { "--date": {}, "--from": {}, "--to": {}, "--opponent": {}, "--final": {}, "--result": {}, "--limit": {}, "--offset": {} } }),
   command(["lineup", "validate"], { input: "required" }),
   command(["lineup", "write"], { input: "required", risk: "write" }),
   command(["lineup", "read"], { flags: { "--id": { required: true } } }),
@@ -105,7 +109,8 @@ export const commandSpecs: readonly CommandSpec[] = [
   }),
   command(["person", "analysis", "read"], {
     flags: {
-      "--name": { required: true },
+      "--name": {},
+      "--player-key": {},
       "--from": { required: true },
       "--to": { required: true },
       "--team": {},
@@ -189,6 +194,18 @@ export function parseCommand(params: TeamOpsParams): ParsedCommand {
     if (flagSpec.required && !flags.has(name)) {
       throw new TeamOpsError("INVALID_FLAGS", `missing required flag: ${name}`);
     }
+  }
+
+  const key = commandKey(spec);
+  if (key === "player read") {
+    const selectors = ["--key", "--id", "--name"].filter((name) => flags.has(name));
+    if (selectors.length !== 1) throw new TeamOpsError("INVALID_FLAGS", "exactly one of --key, --id, or --name is required");
+    if (flags.has("--team") && !flags.has("--name")) throw new TeamOpsError("INVALID_FLAGS", "--team is only valid with --name");
+  }
+  if (key === "person analysis read") {
+    const selectors = ["--player-key", "--name"].filter((name) => flags.has(name));
+    if (selectors.length !== 1) throw new TeamOpsError("INVALID_FLAGS", "exactly one of --player-key or --name is required");
+    if (flags.has("--team") && !flags.has("--name")) throw new TeamOpsError("INVALID_FLAGS", "--team is only valid with --name");
   }
 
   if (spec.input === "required" && !isJsonObject(params.input)) {

@@ -19,6 +19,12 @@ func TestLineupAcceptReplacesOwnGameLineupAndPreservesOpponent(t *testing.T) {
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.InitializeOwnTeam("测试本队"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddTeam("opponent"); err != nil {
+		t.Fatal(err)
+	}
 
 	positions := []player.Position{
 		player.PositionPitcher,

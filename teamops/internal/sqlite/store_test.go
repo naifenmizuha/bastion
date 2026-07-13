@@ -102,7 +102,7 @@ func TestStoreReportLifecycleAndOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport failed: %v", err)
 	}
-	if got != second {
+	if got.Name != second.Name || got.Date != second.Date || got.Content != second.Content || got.Reflection != second.Reflection || got.ID == 0 || got.PlayerID == 0 || got.UpdatedAt == "" {
 		t.Fatalf("unexpected report: %+v", got)
 	}
 }
@@ -131,12 +131,61 @@ func TestInitBackfillsUpdatedAtOnLegacyTables(t *testing.T) {
 	if err := store.Init(); err != nil {
 		t.Fatalf("second Init migration failed: %v", err)
 	}
-	var updatedAt string
-	if err := store.db.QueryRow(`SELECT updated_at FROM players WHERE name = 'legacy'`).Scan(&updatedAt); err != nil {
+	var updatedAt, playerKey string
+	if err := store.db.QueryRow(`SELECT updated_at,player_key FROM players WHERE name = 'legacy'`).Scan(&updatedAt, &playerKey); err != nil {
 		t.Fatalf("read migrated timestamp failed: %v", err)
 	}
 	if strings.TrimSpace(updatedAt) == "" {
 		t.Fatal("expected legacy row updated_at to be backfilled")
+	}
+	if !strings.HasPrefix(playerKey, "ply_") {
+		t.Fatalf("expected migrated player key, got %q", playerKey)
+	}
+	teams, err := store.ListTeams()
+	if err != nil {
+		t.Fatalf("list migrated teams: %v", err)
+	}
+	if len(teams) != 0 {
+		t.Fatalf("legacy placeholder must stay hidden from business reads: %+v", teams)
+	}
+	var placeholders int
+	if err := store.db.QueryRow(`SELECT count(*) FROM teams WHERE name=?`, legacyOwnTeamName).Scan(&placeholders); err != nil {
+		t.Fatalf("count legacy placeholders: %v", err)
+	}
+	if placeholders != 1 {
+		t.Fatalf("expected one internal migration placeholder, got %d", placeholders)
+	}
+}
+
+func TestInitFreshSchemaDoesNotCreateBusinessRows(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	teams, err := store.ListTeams()
+	if err != nil {
+		t.Fatalf("ListTeams failed: %v", err)
+	}
+	if len(teams) != 0 {
+		t.Fatalf("fresh schema should have no teams: %+v", teams)
+	}
+	initialized, err := store.IsInitialized()
+	if err != nil {
+		t.Fatalf("IsInitialized failed: %v", err)
+	}
+	if initialized {
+		t.Fatal("fresh schema must not initialize an own team")
+	}
+	var appConfigRows int
+	if err := store.db.QueryRow(`SELECT count(*) FROM app_config`).Scan(&appConfigRows); err != nil {
+		t.Fatalf("count app_config: %v", err)
+	}
+	if appConfigRows != 0 {
+		t.Fatalf("fresh schema should have no app_config rows, got %d", appConfigRows)
 	}
 }
 
@@ -335,6 +384,14 @@ func newTestStore(t *testing.T) *Store {
 	})
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init failed: %v", err)
+	}
+	if _, err := store.InitializeOwnTeam("测试本队"); err != nil {
+		t.Fatalf("InitializeOwnTeam failed: %v", err)
+	}
+	for _, opponent := range []string{"Opponent", "Other", "对手", "海港队", "山城队"} {
+		if _, err := store.AddTeam(opponent); err != nil {
+			t.Fatalf("AddTeam(%q) failed: %v", opponent, err)
+		}
 	}
 	return store
 }

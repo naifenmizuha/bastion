@@ -57,7 +57,7 @@ export class SqliteFreshnessProvider implements FreshnessProvider {
     if (names && names.length === 0) return [];
     const where = names ? `WHERE name IN (${names.map(() => "?").join(",")})` : "";
     return this.#rows(
-      `SELECT 'player:' || name AS source_key, updated_at FROM players ${where}`,
+      `SELECT 'player:' || player_key AS source_key, updated_at FROM players ${where}`,
       ...(names ?? []),
     );
   }
@@ -91,6 +91,10 @@ export class SqliteFreshnessProvider implements FreshnessProvider {
       return this.#rows(`SELECT 'team:' || id AS source_key, updated_at FROM teams`);
     }
     if (key.startsWith("player read")) {
+      const playerKey = flag(args, "--key");
+      const id = flag(args, "--id");
+      if (playerKey) return this.#rows(`SELECT 'player:' || player_key AS source_key, updated_at FROM players WHERE player_key=?`, playerKey);
+      if (id) return this.#rows(`SELECT 'player:' || player_key AS source_key, updated_at FROM players WHERE id=?`, id);
       return this.#players([flag(args, "--name") ?? ""]);
     }
     if (key.startsWith("player list")) return this.#players();
@@ -120,6 +124,9 @@ export class SqliteFreshnessProvider implements FreshnessProvider {
     }
     if (args[0] === "game" && args[1] === "read") {
       return this.#rows(`SELECT 'game:' || id AS source_key, updated_at FROM games WHERE id = ?`, flag(args, "--id") ?? "");
+    }
+    if (key === "game lineup list" || key === "game event list") {
+      return this.#rows(`SELECT 'game:' || id AS source_key, updated_at FROM games WHERE id = ?`, flag(args, "--game-id") ?? "");
     }
     if (args[0] === "game" && args[1] === "list") {
       const date = flag(args, "--date");
@@ -171,10 +178,11 @@ export class SqliteFreshnessProvider implements FreshnessProvider {
     }
     if (key === "person analysis read") {
       const name = flag(args, "--name") ?? "";
+      const playerKey = flag(args, "--player-key");
       const from = flag(args, "--from") ?? "";
       const to = flag(args, "--to") ?? "";
       return [
-        ...this.#players([name]),
+        ...(playerKey ? this.#rows(`SELECT 'player:' || player_key AS source_key, updated_at FROM players WHERE player_key=?`, playerKey) : this.#players([name])),
         ...this.#rows(`SELECT 'game:' || id AS source_key, updated_at FROM games WHERE date >= ? AND date <= ? AND is_final = 1`, from, to),
         ...this.#rows(`SELECT 'game_analysis:' || a.game_id AS source_key, a.updated_at FROM game_analyses a JOIN games g ON g.id = a.game_id WHERE g.date >= ? AND g.date <= ?`, from, to),
       ];
