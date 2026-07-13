@@ -2,7 +2,15 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 import type { CliObservationLedger } from "./ledger.ts";
 import type { DerivedMemoryStore } from "./store.ts";
-import type { ChangeEventSource, SaveDerivedMemoryInput } from "./types.ts";
+import type {
+  ChangeEventSource,
+  DerivedMemorySearchScope,
+  DerivedMemoryVisibility,
+  DerivedMemoryWithDependencies,
+  PrincipalContext,
+  SaveDerivedMemoryInput,
+} from "./types.ts";
+import type { FreshnessProvider } from "./freshness.ts";
 
 const MAX_CONCLUSION_LENGTH = 4_000;
 const MAX_LABEL_LENGTH = 128;
@@ -61,8 +69,31 @@ const DerivedMemoryActionParameters = Type.Union([
         Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
       ),
       query: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+      scope: Type.Optional(Type.Union([
+        Type.Literal("all"),
+        Type.Literal("private"),
+        Type.Literal("staff"),
+        Type.Literal("team"),
+      ])),
       includeStale: Type.Optional(Type.Boolean()),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      action: Type.Literal("publish"),
+      id: Type.String({ minLength: 1, maxLength: 128 }),
+      visibility: Type.Union([Type.Literal("staff"), Type.Literal("team")]),
+      confirmedByUser: Type.Literal(true),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      action: Type.Literal("withdraw"),
+      id: Type.String({ minLength: 1, maxLength: 128 }),
+      confirmedByUser: Type.Literal(true),
     },
     { additionalProperties: false },
   ),
@@ -100,10 +131,18 @@ type DerivedMemoryParams =
       subject?: string;
       topic?: string;
       query?: string;
+      scope?: DerivedMemorySearchScope;
       includeStale?: boolean;
       limit?: number;
     }
   | { action: "read"; id: string }
+  | {
+      action: "publish";
+      id: string;
+      visibility: "staff" | "team";
+      confirmedByUser: true;
+    }
+  | { action: "withdraw"; id: string; confirmedByUser: true }
   | { action: "forget"; id: string; confirmedByUser: true };
 
 export interface DerivedMemoryToolDetails {
@@ -121,6 +160,97 @@ export interface DerivedMemoryExtensionOptions {
   store: DerivedMemoryStore;
   ledger: CliObservationLedger;
   changeEvents: ChangeEventSource;
+  freshness: FreshnessProvider;
+  principal: PrincipalContext;
+}
+
+function changedSourceKeys(
+  saved: readonly { sourceKey: string; updatedAt: string }[],
+  current: readonly { sourceKey: string; updatedAt: string }[],
+): string[] {
+  const left = new Map(saved.map((entry) => [entry.sourceKey, entry.updatedAt]));
+  const right = new Map(current.map((entry) => [entry.sourceKey, entry.updatedAt]));
+  return [...new Set([...left.keys(), ...right.keys()])]
+    .filter((key) => left.get(key) !== right.get(key))
+    .sort();
+}
+
+function validateFreshness(
+  memory: DerivedMemoryWithDependencies,
+  options: DerivedMemoryExtensionOptions,
+): "fresh" | "stale" | "unknown" {
+  if (memory.status === "stale") return "stale";
+  try {
+    const changed: string[] = [];
+    for (const dependency of memory.dependencies) {
+      if (!dependency.sourceSnapshot) {
+        changed.push("legacy_missing_snapshot");
+        continue;
+      }
+      const current = options.freshness.snapshot({
+        args: dependency.command,
+        ...(dependency.input ? { input: dependency.input } : {}),
+      });
+      if (current.hash !== dependency.sourceSnapshot.hash) {
+        changed.push(...changedSourceKeys(
+          dependency.sourceSnapshot.sources,
+          current.sources,
+        ));
+      }
+    }
+    if (changed.length > 0) {
+      options.store.invalidateFromFreshness(
+        options.principal.authorityId,
+        memory.id,
+        [...new Set(changed)],
+      );
+      return "stale";
+    }
+    return "fresh";
+  } catch {
+    return "unknown";
+  }
+}
+
+function canReadStaff(principal: PrincipalContext): boolean {
+  return principal.role === "admin" || principal.role === "coach";
+}
+
+function accessibleScopes(principal: PrincipalContext): DerivedMemoryVisibility[] {
+  return canReadStaff(principal)
+    ? ["private", "staff", "team"]
+    : ["private", "team"];
+}
+
+function readForScope(
+  store: DerivedMemoryStore,
+  principal: PrincipalContext,
+  scope: DerivedMemoryVisibility,
+  id: string,
+): DerivedMemoryWithDependencies | undefined {
+  if (scope === "private") return store.readPrivate(id, principal);
+  if (scope === "staff") return store.readStaff(id, principal);
+  return store.readTeam(id, principal);
+}
+
+function readAccessible(
+  store: DerivedMemoryStore,
+  principal: PrincipalContext,
+  id: string,
+): DerivedMemoryWithDependencies | undefined {
+  for (const scope of accessibleScopes(principal)) {
+    const memory = readForScope(store, principal, scope, id);
+    if (memory) return memory;
+  }
+  return undefined;
+}
+
+function errorResult(
+  action: DerivedMemoryParams["action"],
+  code: string,
+  message: string,
+) {
+  return result({ kind: "derived_memory", ok: false, action, error: { code, message } });
 }
 
 function result(details: DerivedMemoryToolDetails) {
@@ -155,8 +285,10 @@ export function createDerivedMemoryExtension(
   options: DerivedMemoryExtensionOptions,
 ): ExtensionFactory {
   return (pi) => {
-    const unsubscribe = options.changeEvents.subscribe((event) => {
-      options.store.invalidate(event);
+    const unsubscribe = options.changeEvents.subscribe(() => {
+      for (const memory of options.store.freshMemories(options.principal.authorityId)) {
+        validateFreshness(memory, options);
+      }
     });
     pi.on("session_shutdown", () => {
       unsubscribe();
@@ -167,9 +299,9 @@ export function createDerivedMemoryExtension(
       name: "derived_memory",
       label: "Derived Memory",
       description:
-        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. This is not authoritative data. Search before repeating complex analysis; never rely on stale memories. Forget only when the user explicitly requests deletion.",
+        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. Memories are private by default and may be explicitly published to staff or team scope. This is not authoritative data. Never rely on stale memories.",
       promptSnippet:
-        "Search, save, read, or explicitly forget dependency-backed derived conclusions",
+        "Search, save, read, publish, withdraw, or explicitly forget dependency-backed derived conclusions",
       parameters: DerivedMemoryParameters,
       executionMode: "sequential",
 
@@ -212,7 +344,7 @@ export function createDerivedMemoryExtension(
             });
           }
           try {
-            const memory = options.store.save(params, dependencies);
+            const memory = options.store.save(options.principal, params, dependencies);
             return result({
               kind: "derived_memory",
               ok: true,
@@ -233,8 +365,40 @@ export function createDerivedMemoryExtension(
         }
 
         if (params.action === "search") {
-          const memories = options.store.search(params).map((memory) => ({
+          const requestedScope = params.scope ?? "all";
+          if (requestedScope === "staff" && !canReadStaff(options.principal)) {
+            return errorResult("search", "FORBIDDEN", "players cannot search staff memories");
+          }
+          const scopes = requestedScope === "all"
+            ? accessibleScopes(options.principal)
+            : [requestedScope];
+          let unknownCount = 0;
+          const candidates = scopes.flatMap((scope) => {
+            if (scope === "private") return options.store.searchPrivate(options.principal, params);
+            if (scope === "staff") return options.store.searchStaff(options.principal, params);
+            return options.store.searchTeam(options.principal, params);
+          });
+          const validated = candidates.flatMap((memory) => {
+            const full = readForScope(
+              options.store,
+              options.principal,
+              memory.visibility,
+              memory.id,
+            )!;
+            const status = validateFreshness(full, options);
+            if (status === "unknown") unknownCount += 1;
+            if (status === "unknown" || (!params.includeStale && status === "stale")) return [];
+            return [{ ...memory, status }];
+          });
+          const uniqueMemories = [...new Map(
+            validated
+              .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
+              .map((memory) => [memory.id, memory]),
+          ).values()].slice(0, params.limit ?? 10);
+          const memories = uniqueMemories.map((memory) => ({
             id: memory.id,
+            ownerUserId: memory.ownerUserId,
+            visibility: memory.visibility,
             kind: memory.kind,
             subjectKeys: memory.subjectKeys,
             topics: memory.topics,
@@ -250,12 +414,18 @@ export function createDerivedMemoryExtension(
             kind: "derived_memory",
             ok: true,
             action: "search",
-            data: { memories },
+            data: {
+              memories,
+              ...(unknownCount > 0 ? { unknownCount } : {}),
+            },
           });
         }
 
         if (params.action === "read") {
-          const memory = options.store.read(params.id);
+          const memory = readAccessible(options.store, options.principal, params.id);
+          const effectiveStatus = memory
+            ? validateFreshness(memory, options)
+            : undefined;
           return memory
             ? result({
                 kind: "derived_memory",
@@ -263,10 +433,16 @@ export function createDerivedMemoryExtension(
                 action: "read",
                 data: {
                   ...memory,
-                  ...(memory.status === "stale"
+                  status: effectiveStatus,
+                  ...(effectiveStatus === "stale"
                     ? {
                         warning:
                           "Do not rely on this conclusion. Re-run every dependency before deriving a replacement.",
+                      }
+                    : effectiveStatus === "unknown"
+                    ? {
+                        warning:
+                          "Freshness could not be verified. Do not rely on this conclusion until its dependencies can be checked.",
                       }
                     : {}),
                 },
@@ -282,7 +458,44 @@ export function createDerivedMemoryExtension(
               });
         }
 
-        const forgotten = options.store.forget(params.id);
+        if (params.action === "publish") {
+          if (params.visibility === "staff" && !canReadStaff(options.principal)) {
+            return errorResult("publish", "FORBIDDEN", "players cannot publish staff memories");
+          }
+          const memory = options.store.publish(
+            params.id,
+            options.principal,
+            params.visibility,
+          );
+          return memory
+            ? result({ kind: "derived_memory", ok: true, action: "publish", data: memory })
+            : errorResult("publish", "NOT_FOUND", `private derived memory not found: ${params.id}`);
+        }
+
+        if (params.action === "withdraw") {
+          const visible = readAccessible(options.store, options.principal, params.id);
+          if (visible && visible.visibility !== "private" && visible.ownerUserId !== options.principal.userId) {
+            return errorResult("withdraw", "FORBIDDEN", "only the memory owner can withdraw it");
+          }
+          const memory = options.store.withdraw(params.id, options.principal);
+          return memory
+            ? result({ kind: "derived_memory", ok: true, action: "withdraw", data: memory })
+            : errorResult("withdraw", "NOT_FOUND", `published derived memory not found: ${params.id}`);
+        }
+
+        const privateMemory = options.store.readPrivate(params.id, options.principal);
+        const visibleShared = readAccessible(options.store, options.principal, params.id);
+        if (
+          !privateMemory &&
+          visibleShared &&
+          visibleShared.visibility !== "private" &&
+          options.principal.role !== "admin"
+        ) {
+          return errorResult("forget", "FORBIDDEN", "only an administrator can delete shared memories");
+        }
+        const forgotten = privateMemory
+          ? options.store.forgetPrivate(params.id, options.principal)
+          : options.store.forgetShared(params.id, options.principal);
         return forgotten
           ? result({
               kind: "derived_memory",

@@ -40,6 +40,11 @@ import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
 import { CliObservationLedger } from "./derived-memory/ledger.ts";
 import { DerivedMemoryStore } from "./derived-memory/store.ts";
+import { SqliteFreshnessProvider } from "./derived-memory/freshness.ts";
+import type {
+  PrincipalContext,
+  PrincipalRole,
+} from "./derived-memory/types.ts";
 import { loadRuntimeEnv } from "./env-loader.ts";
 
 const bastionHeaderExtension: ExtensionFactory = (pi) => {
@@ -66,6 +71,7 @@ export interface BastionRuntimeHostOptions {
   agentDir?: string;
   configAgentDir?: string;
   confirmWrite?: ConfirmWrite;
+  principal?: PrincipalContext;
 }
 
 export interface BastionRuntimeHost {
@@ -86,11 +92,55 @@ function runtimeSkillPaths(repoRoot: string): string[] {
     .sort();
 }
 
+const PRINCIPAL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
+
+function principalId(value: string | undefined, name: string): string {
+  const normalized = value?.trim();
+  if (!normalized || !PRINCIPAL_ID.test(normalized)) {
+    throw new Error(`${name} must be a non-empty stable identifier`);
+  }
+  return normalized;
+}
+
+export function resolvePrincipalContext(
+  supplied: PrincipalContext | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): PrincipalContext {
+  const role = supplied?.role ?? env.BASTION_USER_ROLE;
+  if (role !== "admin" && role !== "coach" && role !== "player") {
+    throw new Error("BASTION_USER_ROLE must be one of admin, coach, or player");
+  }
+  return {
+    authorityId: principalId(
+      supplied?.authorityId ?? env.BASTION_AUTHORITY_ID,
+      "BASTION_AUTHORITY_ID",
+    ),
+    teamId: principalId(
+      supplied?.teamId ?? env.BASTION_TEAM_ID,
+      "BASTION_TEAM_ID",
+    ),
+    userId: principalId(
+      supplied?.userId ?? env.BASTION_USER_ID,
+      "BASTION_USER_ID",
+    ),
+    role: role as PrincipalRole,
+    ...((supplied?.playerId ?? env.BASTION_PLAYER_ID)
+      ? {
+          playerId: principalId(
+            supplied?.playerId ?? env.BASTION_PLAYER_ID,
+            "BASTION_PLAYER_ID",
+          ),
+        }
+      : {}),
+  };
+}
+
 export async function createBastionRuntimeHost(
   options: BastionRuntimeHostOptions = {},
 ): Promise<BastionRuntimeHost> {
   const repoRoot = repositoryRoot();
   loadRuntimeEnv(repoRoot);
+  const principal = resolvePrincipalContext(options.principal);
   const defaultAgentDir = join(homedir(), ".bastion", "agent");
   const skillPaths = runtimeSkillPaths(repoRoot);
   const databasePath =
@@ -127,7 +177,7 @@ export async function createBastionRuntimeHost(
   const derivedMemoryStore = new DerivedMemoryStore(
     join(agentDir, "derived-memory.sqlite"),
   );
-  derivedMemoryStore.markFreshMemoriesStaleOnStartup();
+  const freshness = new SqliteFreshnessProvider(databasePath);
   const embeddingOptions = embeddingOptionsFromEnv();
   const baseballRuleEmbedder = embeddingOptions
     ? createEnvEmbeddingProvider(embeddingOptions)
@@ -147,6 +197,7 @@ export async function createBastionRuntimeHost(
     const observationLedger = new CliObservationLedger();
     const teamOpsExtension = createTeamOpsExtension(cliOptions, {
       confirmWrite: options.confirmWrite,
+      freshness,
       onResult: ({ toolCallId, params, details }) => {
         observationLedger.record(toolCallId, params, details, changeEvents);
       },
@@ -155,6 +206,8 @@ export async function createBastionRuntimeHost(
       store: derivedMemoryStore,
       ledger: observationLedger,
       changeEvents,
+      freshness,
+      principal,
     });
     const baseballRulesExtension = createBaseballRulesExtension({
       store: baseballRuleStore,
@@ -216,6 +269,7 @@ export async function createBastionRuntimeHost(
     });
   } catch (error) {
     derivedMemoryStore.close();
+    freshness.close();
     baseballRuleStore.close();
     throw error;
   }
@@ -226,6 +280,7 @@ export async function createBastionRuntimeHost(
     async dispose() {
       await runtime.dispose();
       derivedMemoryStore.close();
+      freshness.close();
       baseballRuleStore.close();
     },
   };

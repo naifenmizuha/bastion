@@ -25,11 +25,15 @@ function command(
 }
 
 export const commandSpecs: readonly CommandSpec[] = [
+  command(["team", "init"], { input: "required", risk: "write" }),
+  command(["team", "add"], { input: "required", risk: "write" }),
+  command(["team", "read"], { flags: { "--name": { required: true } } }),
+  command(["team", "list"]),
   command(["batch", "read"], { input: "required" }),
   command(["batch", "write"], { input: "required", risk: "write" }),
   command(["player", "add"], { input: "required", risk: "write" }),
-  command(["player", "read"], { flags: { "--name": { required: true } } }),
-  command(["player", "list"]),
+  command(["player", "read"], { flags: { "--name": { required: true }, "--team": {} } }),
+  command(["player", "list"], { flags: { "--team": {}, "--scope": {} } }),
   command(["report", "write"], { input: "required", risk: "write" }),
   command(["report", "read"], {
     flags: { "--name": { required: true }, "--date": { required: true } },
@@ -48,6 +52,7 @@ export const commandSpecs: readonly CommandSpec[] = [
     flags: {
       "--game-id": { required: true },
       "--player": {},
+      "--team": {},
     },
   }),
   command(["game", "analysis", "list"]),
@@ -103,6 +108,7 @@ export const commandSpecs: readonly CommandSpec[] = [
       "--name": { required: true },
       "--from": { required: true },
       "--to": { required: true },
+      "--team": {},
     },
   }),
 ];

@@ -161,10 +161,84 @@ func (s *Service) GenerateGameAnalysis(gameID int64) (int64, error) {
 
 // ReadGameAnalysis 读取比赛分析，可选地只保留指定球员的数据。
 func (s *Service) ReadGameAnalysis(gameID int64, player string) (GameAnalysisResult, error) {
+	return s.ReadGameAnalysisForTeam(gameID, player, "")
+}
+
+type analysisTeamRepository interface {
+	AnalysisTeamID(gameID int64, team string) (int64, error)
+}
+
+func (s *Service) ReadGameAnalysisForTeam(gameID int64, player, team string) (GameAnalysisResult, error) {
 	if gameID <= 0 {
 		return GameAnalysisResult{}, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
 	}
-	return s.repo.GetGameAnalysis(gameID, strings.TrimSpace(player))
+	result, err := s.repo.GetGameAnalysis(gameID, strings.TrimSpace(player))
+	if err != nil {
+		return GameAnalysisResult{}, err
+	}
+	repo, ok := s.repo.(analysisTeamRepository)
+	if !ok {
+		return result, nil
+	}
+	teamID, err := repo.AnalysisTeamID(gameID, strings.TrimSpace(team))
+	if err != nil {
+		return GameAnalysisResult{}, err
+	}
+	result.Summaries = filterSummariesByTeam(result.Summaries, teamID)
+	result.Batting = filterBattingByTeam(result.Batting, teamID)
+	result.Baserunning = filterBaserunningByTeam(result.Baserunning, teamID)
+	result.Pitching = filterPitchingByTeam(result.Pitching, teamID)
+	result.Fielding = filterFieldingByTeam(result.Fielding, teamID)
+	if strings.TrimSpace(player) != "" && len(result.Summaries) == 0 {
+		return GameAnalysisResult{}, fmt.Errorf("game player analysis not found: %d %s", gameID, player)
+	}
+	return result, nil
+}
+
+func filterSummariesByTeam(v []PlayerPerformanceSummary, id int64) []PlayerPerformanceSummary {
+	out := v[:0]
+	for _, x := range v {
+		if x.TeamID == id {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+func filterBattingByTeam(v []PlayerBattingStats, id int64) []PlayerBattingStats {
+	out := v[:0]
+	for _, x := range v {
+		if x.TeamID == id {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+func filterBaserunningByTeam(v []PlayerBaserunningStats, id int64) []PlayerBaserunningStats {
+	out := v[:0]
+	for _, x := range v {
+		if x.TeamID == id {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+func filterPitchingByTeam(v []PlayerPitchingStats, id int64) []PlayerPitchingStats {
+	out := v[:0]
+	for _, x := range v {
+		if x.TeamID == id {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+func filterFieldingByTeam(v []PlayerFieldingStats, id int64) []PlayerFieldingStats {
+	out := v[:0]
+	for _, x := range v {
+		if x.TeamID == id {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // ListGameAnalyses 返回所有已生成分析的比赛摘要。

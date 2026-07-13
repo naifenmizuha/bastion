@@ -25,6 +25,8 @@ type ObjectInputContract struct {
 }
 
 var commandInputContracts = []CommandInputContract{
+	objectContract([]string{"team", "init"}, []string{"own_team"}, map[string]map[string]any{"own_team": stringProperty("Own team name")}, map[string]any{"own_team": "堡垒队"}),
+	objectContract([]string{"team", "add"}, []string{"name"}, map[string]map[string]any{"name": stringProperty("Opponent team name")}, map[string]any{"name": "海港队"}),
 	objectContract(
 		[]string{"batch", "read"},
 		[]string{"operations"},
@@ -51,6 +53,7 @@ var commandInputContracts = []CommandInputContract{
 		[]string{"player", "add"},
 		[]string{"name", "number", "bat", "throw", "positions"},
 		map[string]map[string]any{
+			"team":      stringProperty("Optional registered team name; defaults to own team"),
 			"name":      stringProperty("Player name"),
 			"number":    integerProperty("Uniform number", 0),
 			"bat":       listStringProperty("Comma-separated batting hands", []string{"left", "right"}),

@@ -9,6 +9,79 @@ import (
 
 // BuildGameAnalysis 将比赛事件归类并汇总为各球员的单场表现分析。
 func BuildGameAnalysis(details GameDetails, generatedAt string) (GameAnalysisResult, error) {
+	own, err := buildGameAnalysisPerspective(details, generatedAt)
+	if err != nil {
+		return GameAnalysisResult{}, err
+	}
+	if details.Game.OwnTeamID == 0 || details.Game.OpponentTeamID == 0 {
+		return own, nil
+	}
+	assignResultTeam(&own, details.Game.OwnTeamID, "")
+	flipped := details
+	if flipped.Game.BattingSide == BattingSideTop {
+		flipped.Game.BattingSide = BattingSideBottom
+	} else {
+		flipped.Game.BattingSide = BattingSideTop
+	}
+	flipped.Game.OwnScore, flipped.Game.OpponentScore = details.Game.OpponentScore, details.Game.OwnScore
+	for i := range flipped.Lineups {
+		if flipped.Lineups[i].Team == TeamOwn {
+			flipped.Lineups[i].Team = TeamOpponent
+		} else {
+			flipped.Lineups[i].Team = TeamOwn
+		}
+	}
+	for i := range flipped.Events {
+		if flipped.Events[i].Team == TeamOwn {
+			flipped.Events[i].Team = TeamOpponent
+		} else {
+			flipped.Events[i].Team = TeamOwn
+		}
+	}
+	opponent, err := buildGameAnalysisPerspective(flipped, generatedAt)
+	if err != nil {
+		return GameAnalysisResult{}, err
+	}
+	assignResultTeam(&opponent, details.Game.OpponentTeamID, details.Game.Opponent)
+	for i := range opponent.DataGaps {
+		opponent.DataGaps[i].Scope = "opponent_" + opponent.DataGaps[i].Scope
+		opponent.DataGaps[i].Message = details.Game.Opponent + ": " + opponent.DataGaps[i].Message
+	}
+	own.Summaries = append(own.Summaries, opponent.Summaries...)
+	own.Batting = append(own.Batting, opponent.Batting...)
+	own.Baserunning = append(own.Baserunning, opponent.Baserunning...)
+	own.Pitching = append(own.Pitching, opponent.Pitching...)
+	own.Fielding = append(own.Fielding, opponent.Fielding...)
+	own.DataGaps = append(own.DataGaps, opponent.DataGaps...)
+	own.Analysis.PlayersAnalyzed = len(own.Summaries)
+	sortAnalysisResult(&own)
+	return own, nil
+}
+
+func assignResultTeam(r *GameAnalysisResult, id int64, name string) {
+	for i := range r.Summaries {
+		r.Summaries[i].TeamID = id
+		r.Summaries[i].Team = name
+	}
+	for i := range r.Batting {
+		r.Batting[i].TeamID = id
+		r.Batting[i].Team = name
+	}
+	for i := range r.Baserunning {
+		r.Baserunning[i].TeamID = id
+		r.Baserunning[i].Team = name
+	}
+	for i := range r.Pitching {
+		r.Pitching[i].TeamID = id
+		r.Pitching[i].Team = name
+	}
+	for i := range r.Fielding {
+		r.Fielding[i].TeamID = id
+		r.Fielding[i].Team = name
+	}
+}
+
+func buildGameAnalysisPerspective(details GameDetails, generatedAt string) (GameAnalysisResult, error) {
 	if len(details.Events) == 0 {
 		return GameAnalysisResult{}, errors.New("game has no analyzable events")
 	}

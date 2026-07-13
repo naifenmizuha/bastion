@@ -2,11 +2,16 @@ package sqlite
 
 import (
 	"database/sql"
+	"time"
 
 	"teamops/internal/domain/game"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func nowTimestamp() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
+}
 
 type Store struct {
 	db *sql.DB
