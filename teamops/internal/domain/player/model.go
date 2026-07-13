@@ -20,6 +20,10 @@ const (
 )
 
 type Player struct {
+	ID        int64
+	TeamID    int64
+	Team      string
+	Scope     string
 	Name      string
 	Number    int
 	Bat       Hand

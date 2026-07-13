@@ -1,7 +1,33 @@
 export type DerivedMemoryStatus = "fresh" | "stale";
+export type EffectiveDerivedMemoryStatus = DerivedMemoryStatus | "unknown";
+export type DerivedMemoryVisibility = "private" | "staff" | "team";
+export type DerivedMemorySearchScope = "all" | DerivedMemoryVisibility;
+export type PrincipalRole = "admin" | "coach" | "player";
+
+export interface PrincipalContext {
+  authorityId: string;
+  teamId: string;
+  userId: string;
+  role: PrincipalRole;
+  playerId?: string;
+}
+
+export interface SourceSnapshotEntry {
+  sourceKey: string;
+  updatedAt: string;
+}
+
+export interface SourceSnapshot {
+  sources: SourceSnapshotEntry[];
+  hash: string;
+}
 
 export interface DerivedMemory {
   id: string;
+  authorityId: string;
+  teamId: string;
+  ownerUserId: string;
+  visibility: DerivedMemoryVisibility;
   kind: string;
   subjectKeys: string[];
   topics: string[];
@@ -10,6 +36,7 @@ export interface DerivedMemory {
   status: DerivedMemoryStatus;
   createdAt: number;
   updatedAt: number;
+  publishedAt?: number;
   invalidatedAt?: number;
   invalidatedByEventId?: string;
 }
@@ -21,6 +48,7 @@ export interface DerivedMemoryDependency {
   normalizedCommandHash: string;
   invalidationTopics: string[];
   observedAt: number;
+  sourceSnapshot?: SourceSnapshot;
 }
 
 export interface DerivedMemoryWithDependencies extends DerivedMemory {
@@ -50,6 +78,7 @@ export interface SuccessfulReadObservation {
   normalizedCommandHash: string;
   invalidationTopics: string[];
   observedAt: number;
+  sourceSnapshot: SourceSnapshot;
 }
 
 export interface DependencyRequest {
@@ -67,6 +96,7 @@ export interface SaveDerivedMemoryInput {
 }
 
 export interface SearchDerivedMemoryInput {
+  scope?: DerivedMemorySearchScope;
   kind?: string;
   subject?: string;
   topic?: string;
@@ -75,9 +105,21 @@ export interface SearchDerivedMemoryInput {
   limit?: number;
 }
 
+export type DerivedMemorySharingAction = "publish" | "withdraw" | "delete";
+
+export interface DerivedMemorySharingEvent {
+  memoryId: string;
+  actorUserId: string;
+  action: DerivedMemorySharingAction;
+  fromVisibility: DerivedMemoryVisibility;
+  toVisibility?: DerivedMemoryVisibility;
+  occurredAt: number;
+}
+
 export interface DerivedMemoryInvalidation {
   memoryId: string;
   eventId: string;
   topics: string[];
   invalidatedAt: number;
+  sourceKeys?: string[];
 }

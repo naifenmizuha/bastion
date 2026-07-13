@@ -114,6 +114,7 @@ export interface TeamOpsToolDetails {
   approved?: boolean;
   result?: ProcessResult;
   verification?: VerificationResult[];
+  freshness?: import("../derived-memory/types.ts").SourceSnapshot;
   error?: TeamOpsToolError;
 }
 

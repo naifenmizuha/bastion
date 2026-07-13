@@ -12,10 +12,11 @@ import (
 // CreateRecommendation 写入训练推荐并记录创建时间。
 func (s *Store) CreateRecommendation(r drill.Recommendation) (int64, error) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := nowTimestamp()
 	result, err := s.db.Exec(`
-INSERT INTO drill_recommendations (name, url, reason, type, summary, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
-`, r.Name, r.URL, r.Reason, int(r.Type), r.Summary, createdAt)
+INSERT INTO drill_recommendations (name, url, reason, type, summary, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`, r.Name, r.URL, r.Reason, int(r.Type), r.Summary, createdAt, updatedAt)
 	if err != nil {
 		return 0, err
 	}
@@ -95,11 +96,12 @@ WHERE id = ?
 // UpdateRecommendationReview 写入审核结论，并确认目标推荐确实存在。
 func (s *Store) UpdateRecommendationReview(id int64, isApproved bool, reviewedBy string, reviewSummary string, reviewNote string) error {
 	reviewedAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := nowTimestamp()
 	result, err := s.db.Exec(`
 UPDATE drill_recommendations
-SET is_approved = ?, reviewed_by = ?, review_summary = ?, review_note = ?, reviewed_at = ?
+SET is_approved = ?, reviewed_by = ?, review_summary = ?, review_note = ?, reviewed_at = ?, updated_at = ?
 WHERE id = ?
-`, isApproved, reviewedBy, reviewSummary, reviewNote, reviewedAt, id)
+`, isApproved, reviewedBy, reviewSummary, reviewNote, reviewedAt, updatedAt, id)
 	if err != nil {
 		return err
 	}

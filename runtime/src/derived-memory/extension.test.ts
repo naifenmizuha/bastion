@@ -11,6 +11,8 @@ import {
 } from "./extension.ts";
 import { CliObservationLedger } from "./ledger.ts";
 import { DerivedMemoryStore } from "./store.ts";
+import { sourceSnapshot } from "./freshness.ts";
+import type { PrincipalContext } from "./types.ts";
 
 const directories: string[] = [];
 
@@ -20,10 +22,23 @@ afterEach(() => {
   }
 });
 
-function harness() {
-  const directory = mkdtempSync(join(tmpdir(), "bastion-memory-extension-"));
-  directories.push(directory);
-  const store = new DerivedMemoryStore(join(directory, "memory.sqlite"));
+const alice: PrincipalContext = {
+  authorityId: "authority-one",
+  teamId: "team-one",
+  userId: "alice",
+  role: "coach",
+};
+
+function harness(options: {
+  store?: DerivedMemoryStore;
+  principal?: PrincipalContext;
+} = {}) {
+  let store = options.store;
+  if (!store) {
+    const directory = mkdtempSync(join(tmpdir(), "bastion-memory-extension-"));
+    directories.push(directory);
+    store = new DerivedMemoryStore(join(directory, "memory.sqlite"));
+  }
   const ledger = new CliObservationLedger();
   const changeEvents = new LocalChangeEventBus();
   let tool:
@@ -35,7 +50,27 @@ function harness() {
       }
     | undefined;
   const handlers = new Map<string, (...args: any[]) => unknown>();
-  createDerivedMemoryExtension({ store, ledger, changeEvents })({
+  const versions = new Map<string, string>();
+  let freshnessFailure = false;
+  const freshness = {
+    snapshot(params: { args: string[] }) {
+      if (freshnessFailure) throw new Error("database unavailable");
+      const id = params.args.at(-1) ?? "unknown";
+      return sourceSnapshot([{
+        sourceKey: `game_analysis:${id}`,
+        updatedAt: versions.get(id) ?? "v1",
+      }]);
+    },
+    set(id: string, version: string) { versions.set(id, version); },
+    fail() { freshnessFailure = true; },
+  };
+  createDerivedMemoryExtension({
+    store,
+    ledger,
+    changeEvents,
+    freshness,
+    principal: options.principal ?? alice,
+  })({
     registerTool(value: typeof tool) {
       tool = value;
     },
@@ -44,7 +79,7 @@ function harness() {
     },
   } as never);
   assert.ok(tool);
-  return { store, ledger, changeEvents, tool, handlers };
+  return { store, ledger, changeEvents, freshness, tool, handlers };
 }
 
 function recordReads(ledger: CliObservationLedger, bus: LocalChangeEventBus) {
@@ -59,6 +94,10 @@ function recordReads(ledger: CliObservationLedger, bus: LocalChangeEventBus) {
         ok: true,
         risk: "read",
         command: ["game", "analysis", "read", "--game-id", gameId],
+        freshness: sourceSnapshot([{
+          sourceKey: `game_analysis:${gameId}`,
+          updatedAt: "v1",
+        }]),
       },
       bus,
     );
@@ -73,10 +112,12 @@ describe("derived_memory extension", () => {
     };
     assert.equal(schema.type, "object");
     assert.ok(Array.isArray(schema.anyOf));
+    const serialized = JSON.stringify(schema);
+    assert.doesNotMatch(serialized, /userId|teamId|authorityId|playerId/);
   });
 
   it("saves from verified reads, searches, reads, and forgets", async () => {
-    const { store, ledger, changeEvents, tool } = harness();
+    const { store, ledger, changeEvents, freshness, tool } = harness();
     recordReads(ledger, changeEvents);
     const saved = await tool.execute("memory-1", {
       action: "save",
@@ -96,6 +137,12 @@ describe("derived_memory extension", () => {
     });
     assert.equal(saved.details.ok, true);
     const id = (saved.details.data as { id: string }).id;
+    freshness.set("99", "v2");
+    changeEvents.publish({
+      id: "unrelated-game-changed",
+      topics: ["game"],
+      occurredAt: Date.now(),
+    });
 
     const search = await tool.execute("memory-2", {
       action: "search",
@@ -116,7 +163,7 @@ describe("derived_memory extension", () => {
       confirmedByUser: true,
     });
     assert.equal(forgotten.details.ok, true);
-    assert.equal(store.read(id), undefined);
+    assert.equal(store.readPrivate(id, alice), undefined);
     store.close();
   });
 
@@ -140,7 +187,7 @@ describe("derived_memory extension", () => {
   });
 
   it("hides a memory from default search after a change event", async () => {
-    const { store, ledger, changeEvents, tool } = harness();
+    const { store, ledger, changeEvents, freshness, tool } = harness();
     recordReads(ledger, changeEvents);
     const saved = await tool.execute("memory-1", {
       action: "save",
@@ -159,6 +206,7 @@ describe("derived_memory extension", () => {
       ],
     });
     const id = (saved.details.data as { id: string }).id;
+    freshness.set("1", "v2");
     changeEvents.publish({
       id: "game-changed",
       topics: ["game"],
@@ -179,6 +227,177 @@ describe("derived_memory extension", () => {
       (read.details.data as { warning: string }).warning,
       /Do not rely/,
     );
+    store.close();
+  });
+
+  it("fails closed with unknown without permanently staling the memory", async () => {
+    const { store, ledger, changeEvents, freshness, tool } = harness();
+    recordReads(ledger, changeEvents);
+    const saved = await tool.execute("memory-1", {
+      action: "save",
+      kind: "recent_offense",
+      subjectKeys: ["team:bastion"],
+      topics: ["offense"],
+      conclusion: "On-base production is concentrated.",
+      limitations: [],
+      dependencies: [
+        { args: ["game", "analysis", "read", "--game-id", "1"] },
+        { args: ["game", "analysis", "read", "--game-id", "2"] },
+      ],
+    });
+    const id = (saved.details.data as { id: string }).id;
+    freshness.fail();
+    const search = await tool.execute("memory-2", { action: "search" });
+    assert.deepEqual((search.details.data as { memories: unknown[] }).memories, []);
+    assert.equal((search.details.data as { unknownCount: number }).unknownCount, 1);
+    const read = await tool.execute("memory-3", { action: "read", id });
+    assert.equal((read.details.data as { status: string }).status, "unknown");
+    assert.equal(store.readPrivate(id, alice)?.status, "fresh");
+    store.close();
+  });
+
+  it("keeps private memories isolated and merges explicitly published team memories", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bastion-memory-shared-"));
+    directories.push(directory);
+    const store = new DerivedMemoryStore(join(directory, "memory.sqlite"));
+    const aliceHarness = harness({ store, principal: alice });
+    const bob: PrincipalContext = {
+      ...alice,
+      userId: "bob",
+      role: "player",
+      playerId: "player-bob",
+    };
+    const bobHarness = harness({ store, principal: bob });
+    recordReads(aliceHarness.ledger, aliceHarness.changeEvents);
+    const saved = await aliceHarness.tool.execute("save", {
+      action: "save",
+      kind: "recent_offense",
+      subjectKeys: ["team:bastion"],
+      topics: ["offense"],
+      conclusion: "A private conclusion.",
+      limitations: [],
+      dependencies: [
+        { args: ["game", "analysis", "read", "--game-id", "1"] },
+        { args: ["game", "analysis", "read", "--game-id", "2"] },
+      ],
+    });
+    const id = (saved.details.data as { id: string }).id;
+    const beforePublish = await bobHarness.tool.execute("search-before", {
+      action: "search",
+    });
+    assert.deepEqual(
+      (beforePublish.details.data as { memories: unknown[] }).memories,
+      [],
+    );
+
+    const forbiddenStaff = await bobHarness.tool.execute("publish-staff", {
+      action: "publish",
+      id,
+      visibility: "staff",
+      confirmedByUser: true,
+    });
+    assert.equal(forbiddenStaff.details.error?.code, "FORBIDDEN");
+    const published = await aliceHarness.tool.execute("publish-team", {
+      action: "publish",
+      id,
+      visibility: "team",
+      confirmedByUser: true,
+    });
+    assert.equal(published.details.ok, true);
+    const afterPublish = await bobHarness.tool.execute("search-after", {
+      action: "search",
+      limit: 1,
+    });
+    const memories = (afterPublish.details.data as {
+      memories: Array<{ id: string; visibility: string }>;
+    }).memories;
+    assert.deepEqual(memories.map((memory) => memory.id), [id]);
+    assert.equal(memories[0]?.visibility, "team");
+
+    const withdrawn = await aliceHarness.tool.execute("withdraw", {
+      action: "withdraw",
+      id,
+      confirmedByUser: true,
+    });
+    assert.equal(withdrawn.details.ok, true);
+    const afterWithdraw = await bobHarness.tool.execute("search-withdrawn", {
+      action: "search",
+    });
+    assert.deepEqual(
+      (afterWithdraw.details.data as { memories: unknown[] }).memories,
+      [],
+    );
+    store.close();
+  });
+
+  it("restricts staff memories to coaches and administrators", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bastion-memory-staff-"));
+    directories.push(directory);
+    const store = new DerivedMemoryStore(join(directory, "memory.sqlite"));
+    const ownerHarness = harness({ store, principal: alice });
+    const playerHarness = harness({
+      store,
+      principal: { ...alice, userId: "player", role: "player" },
+    });
+    const coachHarness = harness({
+      store,
+      principal: { ...alice, userId: "coach", role: "coach" },
+    });
+    const adminHarness = harness({
+      store,
+      principal: { ...alice, userId: "admin", role: "admin" },
+    });
+    recordReads(ownerHarness.ledger, ownerHarness.changeEvents);
+    const saved = await ownerHarness.tool.execute("save", {
+      action: "save",
+      kind: "player_risk",
+      subjectKeys: ["player:one"],
+      topics: ["risk"],
+      conclusion: "Staff-only assessment.",
+      limitations: [],
+      dependencies: [
+        { args: ["game", "analysis", "read", "--game-id", "1"] },
+        { args: ["game", "analysis", "read", "--game-id", "2"] },
+      ],
+    });
+    const id = (saved.details.data as { id: string }).id;
+    await ownerHarness.tool.execute("publish", {
+      action: "publish",
+      id,
+      visibility: "staff",
+      confirmedByUser: true,
+    });
+
+    const playerSearch = await playerHarness.tool.execute("player-search", {
+      action: "search",
+      scope: "staff",
+    });
+    assert.equal(playerSearch.details.error?.code, "FORBIDDEN");
+    const playerRead = await playerHarness.tool.execute("player-read", {
+      action: "read",
+      id,
+    });
+    assert.equal(playerRead.details.error?.code, "NOT_FOUND");
+    const coachSearch = await coachHarness.tool.execute("coach-search", {
+      action: "search",
+    });
+    assert.equal(
+      (coachSearch.details.data as { memories: unknown[] }).memories.length,
+      1,
+    );
+    const coachDelete = await coachHarness.tool.execute("coach-delete", {
+      action: "forget",
+      id,
+      confirmedByUser: true,
+    });
+    assert.equal(coachDelete.details.error?.code, "FORBIDDEN");
+    const adminDelete = await adminHarness.tool.execute("admin-delete", {
+      action: "forget",
+      id,
+      confirmedByUser: true,
+    });
+    assert.equal(adminDelete.details.ok, true);
+    assert.equal(store.sharingEvents(id).at(-1)?.actorUserId, "admin");
     store.close();
   });
 });

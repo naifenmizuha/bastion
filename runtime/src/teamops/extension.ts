@@ -15,6 +15,7 @@ import {
   isTeamOpsDetailsKind,
   isTeamOpsToolName,
 } from "./types.ts";
+import type { FreshnessProvider } from "../derived-memory/freshness.ts";
 
 export const TeamOpsParameters: TSchema = Type.Object(
   {
@@ -38,6 +39,7 @@ export const TeamOpsParameters: TSchema = Type.Object(
 );
 
 export interface TeamOpsExtensionHooks {
+  freshness?: FreshnessProvider;
   /**
    * Explicit host-owned approval policy. This is intentionally opt-in so the
    * normal runtime continues to require the interactive confirmation dialog.
@@ -110,7 +112,10 @@ export function createTeamOpsExtension(
   hooks: TeamOpsExtensionHooks = {},
 ): ExtensionFactory {
   return (pi) => {
-    const service = new TeamOpsService(new TeamOpsExecutor(options));
+    const service = new TeamOpsService(
+      new TeamOpsExecutor(options),
+      hooks.freshness,
+    );
 
     pi.registerTool({
       name: TEAMOPS_TOOL_NAME,

@@ -9,6 +9,7 @@ import type {
   VerificationResult,
 } from "./types.ts";
 import { TEAMOPS_DETAILS_KIND } from "./types.ts";
+import type { FreshnessProvider } from "../derived-memory/freshness.ts";
 import {
   buildVerificationRequests,
   containsExpected,
@@ -53,7 +54,10 @@ interface GameEventPreflightInput {
 }
 
 export class TeamOpsService {
-  constructor(private readonly executor: TeamOpsRunner) {}
+  constructor(
+    private readonly executor: TeamOpsRunner,
+    private readonly freshness?: FreshnessProvider,
+  ) {}
 
   async execute(
     params: TeamOpsParams,
@@ -222,6 +226,15 @@ export class TeamOpsService {
     const verified = verification.every(
       (item) => item.envelope.ok && item.matched,
     );
+    let freshness;
+    if (command.spec.risk === "read" && this.freshness) {
+      try {
+        freshness = this.freshness.snapshot(params);
+      } catch {
+        // The authoritative read remains successful, but the observation is
+        // intentionally ineligible for derived-memory persistence.
+      }
+    }
     return {
       kind: TEAMOPS_DETAILS_KIND,
       ok: verified,
@@ -229,6 +242,7 @@ export class TeamOpsService {
       risk: command.spec.risk,
       approved,
       result,
+      ...(freshness ? { freshness } : {}),
       ...(verification.length > 0 ? { verification } : {}),
       ...(!verified
         ? {

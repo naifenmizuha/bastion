@@ -19,6 +19,23 @@ before(async () => {
   await access(executable);
   tempDir = await mkdtemp(join(tmpdir(), "teamops-integration-"));
   databasePath = join(tempDir, "bastion.db");
+  const service = new TeamOpsService(
+    new TeamOpsExecutor({
+      executablePath: executable,
+      databasePath,
+      timeoutMs: 10_000,
+    }),
+  );
+  const initialized = await service.execute(
+    { args: ["team", "init"], input: { own_team: "堡垒队" } },
+    { confirmWrite: async () => true },
+  );
+  assert.equal(initialized.ok, true);
+  const opponent = await service.execute(
+    { args: ["team", "add"], input: { name: "海港队" } },
+    { confirmWrite: async () => true },
+  );
+  assert.equal(opponent.ok, true);
 });
 
 after(async () => {

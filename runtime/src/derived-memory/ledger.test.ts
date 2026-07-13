@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { LocalChangeEventBus } from "./events.ts";
 import { CliObservationLedger } from "./ledger.ts";
+import { sourceSnapshot } from "./freshness.ts";
 
 describe("CLI observation ledger", () => {
   it("resolves exact successful reads and rejects duplicates or unknown commands", () => {
@@ -15,6 +16,7 @@ describe("CLI observation ledger", () => {
         ok: true,
         risk: "read",
         command: ["game", "read", "--id", "1"],
+        freshness: sourceSnapshot([{ sourceKey: "game:1", updatedAt: "v1" }]),
       },
       events,
       10,
@@ -27,6 +29,7 @@ describe("CLI observation ledger", () => {
         ok: true,
         risk: "read",
         command: ["game", "analysis", "read", "--game-id", "1"],
+        freshness: sourceSnapshot([{ sourceKey: "game_analysis:1", updatedAt: "v1" }]),
       },
       events,
       11,

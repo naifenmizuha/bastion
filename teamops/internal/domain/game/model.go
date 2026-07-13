@@ -92,16 +92,18 @@ const (
 )
 
 type Game struct {
-	ID            int64       `json:"id"`
-	Date          string      `json:"date"`
-	StartTime     string      `json:"start_time"`
-	Opponent      string      `json:"opponent"`
-	BattingSide   BattingSide `json:"batting_side"`
-	OwnScore      int         `json:"own_score"`
-	OpponentScore int         `json:"opponent_score"`
-	IsFinal       bool        `json:"is_final"`
-	Raw           string      `json:"raw"`
-	CreatedAt     string      `json:"created_at"`
+	ID             int64       `json:"id"`
+	OwnTeamID      int64       `json:"own_team_id"`
+	OpponentTeamID int64       `json:"opponent_team_id"`
+	Date           string      `json:"date"`
+	StartTime      string      `json:"start_time"`
+	Opponent       string      `json:"opponent"`
+	BattingSide    BattingSide `json:"batting_side"`
+	OwnScore       int         `json:"own_score"`
+	OpponentScore  int         `json:"opponent_score"`
+	IsFinal        bool        `json:"is_final"`
+	Raw            string      `json:"raw"`
+	CreatedAt      string      `json:"created_at"`
 }
 
 type GameLineup struct {
@@ -173,6 +175,8 @@ type GameAnalysis struct {
 type PlayerPerformanceSummary struct {
 	ID                   int64
 	GameID               int64
+	TeamID               int64
+	Team                 string
 	Player               string
 	BattingOrder         *int
 	Positions            string
@@ -187,6 +191,8 @@ type PlayerPerformanceSummary struct {
 type PlayerBattingStats struct {
 	ID                 int64
 	GameID             int64
+	TeamID             int64
+	Team               string
 	Player             string
 	PA                 int
 	AtBats             int
@@ -210,6 +216,8 @@ type PlayerBattingStats struct {
 type PlayerBaserunningStats struct {
 	ID                   int64
 	GameID               int64
+	TeamID               int64
+	Team                 string
 	Player               string
 	Runs                 int
 	StolenBases          int
@@ -223,6 +231,8 @@ type PlayerBaserunningStats struct {
 type PlayerPitchingStats struct {
 	ID                 int64
 	GameID             int64
+	TeamID             int64
+	Team               string
 	Player             string
 	OutsRecorded       int
 	InningsPitched     float64
@@ -246,6 +256,8 @@ type PlayerPitchingStats struct {
 type PlayerFieldingStats struct {
 	ID                 int64
 	GameID             int64
+	TeamID             int64
+	Team               string
 	Player             string
 	Positions          string
 	Putouts            int

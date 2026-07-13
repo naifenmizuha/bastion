@@ -16,9 +16,9 @@ game lineup add
 game event write
 game score set
 game analysis generate
-game analysis read --game-id ID [--player NAME]
+game analysis read --game-id ID [--player NAME] [--team TEAM]
 game analysis list
-person analysis read --name NAME --from YYYY-MM-DD --to YYYY-MM-DD
+person analysis read --name NAME [--team TEAM] --from YYYY-MM-DD --to YYYY-MM-DD
 batch read
 batch write
 ```

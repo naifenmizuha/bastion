@@ -11,12 +11,13 @@ import (
 // UpsertReport 按球员和日期新建或覆盖训练报告。
 func (s *Store) UpsertReport(r report.Report) error {
 	_, err := s.db.Exec(`
-INSERT INTO training_reports (name, date, content, reflection)
-VALUES (?, ?, ?, ?)
+INSERT INTO training_reports (name, date, content, reflection, updated_at)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(name, date) DO UPDATE SET
 	content = excluded.content,
-	reflection = excluded.reflection
-`, r.Name, r.Date, r.Content, r.Reflection)
+	reflection = excluded.reflection,
+	updated_at = excluded.updated_at
+`, r.Name, r.Date, r.Content, r.Reflection, nowTimestamp())
 	return err
 }
 

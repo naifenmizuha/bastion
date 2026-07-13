@@ -34,6 +34,7 @@ export class CliObservationLedger {
   ): void {
     if (!details.ok || !details.risk) return;
     if (details.risk === "read") {
+      if (!details.freshness) return;
       const invalidationTopics = readDependencyTopics(params.args);
       if (invalidationTopics.length === 0) return;
       const normalizedCommandHash = commandHash(params);
@@ -43,6 +44,7 @@ export class CliObservationLedger {
         normalizedCommandHash,
         invalidationTopics,
         observedAt,
+        sourceSnapshot: details.freshness,
       });
       return;
     }

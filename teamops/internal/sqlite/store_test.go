@@ -81,10 +81,21 @@ func TestStoreReportLifecycleAndOverwrite(t *testing.T) {
 	if err := store.UpsertReport(first); err != nil {
 		t.Fatalf("first UpsertReport failed: %v", err)
 	}
+	var firstUpdatedAt string
+	if err := store.db.QueryRow(`SELECT updated_at FROM training_reports WHERE name = ? AND date = ?`, first.Name, first.Date).Scan(&firstUpdatedAt); err != nil {
+		t.Fatalf("read first updated_at failed: %v", err)
+	}
 
 	second := report.Report{Name: "张三", Date: "2026-06-24", Content: "守备训练", Reflection: "脚步更主动"}
 	if err := store.UpsertReport(second); err != nil {
 		t.Fatalf("second UpsertReport failed: %v", err)
+	}
+	var secondUpdatedAt string
+	if err := store.db.QueryRow(`SELECT updated_at FROM training_reports WHERE name = ? AND date = ?`, second.Name, second.Date).Scan(&secondUpdatedAt); err != nil {
+		t.Fatalf("read second updated_at failed: %v", err)
+	}
+	if firstUpdatedAt == secondUpdatedAt {
+		t.Fatalf("expected report updated_at to change, still %q", firstUpdatedAt)
 	}
 
 	got, err := store.GetReport("张三", "2026-06-24")
@@ -93,6 +104,39 @@ func TestStoreReportLifecycleAndOverwrite(t *testing.T) {
 	}
 	if got != second {
 		t.Fatalf("unexpected report: %+v", got)
+	}
+}
+
+func TestInitBackfillsUpdatedAtOnLegacyTables(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.db.Exec(`
+		CREATE TABLE players (
+			name TEXT PRIMARY KEY,
+			number INTEGER NOT NULL,
+			bat_hands INTEGER NOT NULL,
+			throw_hands INTEGER NOT NULL,
+			positions INTEGER NOT NULL
+		);
+		INSERT INTO players VALUES ('legacy', 1, 1, 1, 1);
+	`); err != nil {
+		t.Fatalf("seed legacy schema failed: %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init migration failed: %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("second Init migration failed: %v", err)
+	}
+	var updatedAt string
+	if err := store.db.QueryRow(`SELECT updated_at FROM players WHERE name = 'legacy'`).Scan(&updatedAt); err != nil {
+		t.Fatalf("read migrated timestamp failed: %v", err)
+	}
+	if strings.TrimSpace(updatedAt) == "" {
+		t.Fatal("expected legacy row updated_at to be backfilled")
 	}
 }
 

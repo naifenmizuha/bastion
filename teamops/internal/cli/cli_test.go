@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"teamops/internal/sqlite"
+
 	"github.com/alecthomas/kong"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -45,6 +47,37 @@ func TestPlayerAddReadJSONAndTOML(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("TOML output missing %q: %s", want, out)
 		}
+	}
+}
+
+func TestTeamInitializationAndOpponentPlayerIsolation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "teams.db")
+	out, err := runRawCommandInput(dbPath, "", "player", "list")
+	if err == nil || !strings.Contains(out, "team init") {
+		t.Fatalf("expected initialization gate, got %v %s", err, out)
+	}
+	if out, err = runRawCommandInput(dbPath, `{"own_team":"堡垒队"}`, "team", "init", "--input", "-"); err != nil {
+		t.Fatalf("team init: %v %s", err, out)
+	}
+	if out, err = runRawCommandInput(dbPath, `{"name":"海港队"}`, "team", "add", "--input", "-"); err != nil {
+		t.Fatalf("team add: %v %s", err, out)
+	}
+	for _, payload := range []string{`{"name":"同名","number":1,"bat":"right","throw":"right","positions":"pitcher"}`, `{"team":"海港队","name":"同名","number":9,"bat":"left","throw":"right","positions":"outfield"}`} {
+		if out, err = runRawCommandInput(dbPath, payload, "player", "add", "--input", "-"); err != nil {
+			t.Fatalf("player add: %v %s", err, out)
+		}
+	}
+	out, err = runRawCommandInput(dbPath, "", "player", "read", "--name", "同名", "--team", "海港队")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := nestedMap(t, assertJSONOK(t, out), "player")
+	if p["scope"] != "opponent" || p["team"] != "海港队" {
+		t.Fatalf("unexpected opponent player: %#v", p)
+	}
+	out, err = runRawCommandInput(dbPath, `{"name":"同名","date":"2026-07-13","content":"x","reflection":"x"}`, "report", "write", "--input", "-")
+	if err != nil {
+		t.Fatalf("own same-name player should remain eligible: %v %s", err, out)
 	}
 }
 
@@ -557,7 +590,7 @@ func TestContractReturnsEveryStructuredInputCommandWithoutDatabase(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode contract output: %v\n%s", err, stdout.String())
 	}
-	if !envelope.Ok || len(envelope.Data.Commands) != 14 {
+	if !envelope.Ok || len(envelope.Data.Commands) != 16 {
 		t.Fatalf("unexpected contracts: %#v", envelope)
 	}
 	for _, contract := range envelope.Data.Commands {
@@ -739,6 +772,26 @@ func runCommand(dbPath string, args ...string) (string, error) {
 }
 
 func runCommandInput(dbPath, input string, args ...string) (string, error) {
+	if len(args) < 2 || !(args[0] == "team" && args[1] == "init") {
+		store, err := sqlite.Open(dbPath)
+		if err == nil {
+			if store.Init() == nil {
+				ok, _ := store.IsInitialized()
+				if !ok {
+					_, _ = store.InitializeOwnTeam("测试本队")
+				}
+				if len(args) >= 2 && args[0] == "game" && (args[1] == "write" || args[1] == "create") {
+					var payload map[string]any
+					if json.Unmarshal([]byte(input), &payload) == nil {
+						if opponent, ok := payload["opponent"].(string); ok {
+							_, _ = store.AddTeam(opponent)
+						}
+					}
+				}
+			}
+			store.Close()
+		}
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	fullArgs := append([]string{"--db", dbPath}, args...)
@@ -747,6 +800,13 @@ func runCommandInput(dbPath, input string, args ...string) (string, error) {
 		return stdout.String() + stderr.String(), err
 	}
 	return stdout.String() + stderr.String(), nil
+}
+
+func runRawCommandInput(dbPath, input string, args ...string) (string, error) {
+	var stdout, stderr bytes.Buffer
+	fullArgs := append([]string{"--db", dbPath}, args...)
+	err := RunWithIO(fullArgs, strings.NewReader(input), &stdout, &stderr)
+	return stdout.String() + stderr.String(), err
 }
 
 func assertJSONOK(t *testing.T, output string) map[string]any {

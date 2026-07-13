@@ -10,7 +10,7 @@ one or reading SQLite.
 
 ```text
 player list
-player read --name NAME
+player read --name NAME [--team TEAM]
 player add
 report read --name NAME --date YYYY-MM-DD
 report write
@@ -42,6 +42,8 @@ Player add:
 ```
 
 - Required: `name`, `number`, `bat`, `throw`, `positions`
+- Optional: `team`; omit for the own team. Opponent players may be used only
+  for game facts and analysis, never reports, drills, or own-team lineups.
 - Hand values: `left`, `right`
 - Position values: `pitcher`, `catcher`, `first_base`, `second_base`,
   `third_base`, `shortstop`, `outfield`

@@ -15,6 +15,7 @@ import (
 func (s *Store) SaveLineup(value lineup.Lineup) (int64, error) {
 	var id int64
 	err := s.withTx(func(tx *sql.Tx) error {
+		updatedAt := nowTimestamp()
 		var isFinal bool
 		if err := tx.QueryRow(`SELECT is_final FROM games WHERE id = ?`, value.GameID).Scan(&isFinal); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -38,9 +39,9 @@ func (s *Store) SaveLineup(value lineup.Lineup) (int64, error) {
 			createdAt = time.Now().UTC().Format(time.RFC3339)
 		}
 		result, err := tx.Exec(`
-INSERT INTO lineups (game_id, schema_version, status, strategy, reasoning_json, warnings_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-`, value.GameID, value.SchemaVersion, int(lineup.StatusValidated), nullString(value.Strategy), string(reasoning), string(warnings), createdAt)
+INSERT INTO lineups (game_id, schema_version, status, strategy, reasoning_json, warnings_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, value.GameID, value.SchemaVersion, int(lineup.StatusValidated), nullString(value.Strategy), string(reasoning), string(warnings), createdAt, updatedAt)
 		if err != nil {
 			return err
 		}
@@ -124,6 +125,7 @@ WHERE 1 = 1
 func (s *Store) AcceptLineup(id int64) (lineup.AcceptResult, error) {
 	result := lineup.AcceptResult{LineupID: id}
 	err := s.withTx(func(tx *sql.Tx) error {
+		updatedAt := nowTimestamp()
 		var status lineup.Status
 		var isFinal bool
 		if err := tx.QueryRow(`
@@ -145,9 +147,9 @@ WHERE l.id = ?
 		}
 		if _, err := tx.Exec(`
 UPDATE lineups
-SET status = ?
+SET status = ?, updated_at = ?
 WHERE game_id = ? AND status = ?
-`, int(lineup.StatusSuperseded), result.GameID, int(lineup.StatusAccepted)); err != nil {
+`, int(lineup.StatusSuperseded), updatedAt, result.GameID, int(lineup.StatusAccepted)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM game_lineups WHERE game_id = ? AND team = ?`, result.GameID, int(game.TeamOwn)); err != nil {
@@ -197,9 +199,9 @@ ORDER BY batting_order ASC
 		acceptedAt := time.Now().UTC().Format(time.RFC3339)
 		update, err := tx.Exec(`
 UPDATE lineups
-SET status = ?, accepted_at = ?
+SET status = ?, accepted_at = ?, updated_at = ?
 WHERE id = ? AND status = ?
-`, int(lineup.StatusAccepted), acceptedAt, id, int(lineup.StatusValidated))
+`, int(lineup.StatusAccepted), acceptedAt, updatedAt, id, int(lineup.StatusValidated))
 		if err != nil {
 			return err
 		}
@@ -210,6 +212,9 @@ WHERE id = ? AND status = ?
 		if affected != 1 {
 			return fmt.Errorf("lineup not validated: %d", id)
 		}
+		if _, err := tx.Exec(`UPDATE games SET updated_at = ? WHERE id = ?`, updatedAt, result.GameID); err != nil {
+			return err
+		}
 		result.GameLineupCount = len(starters)
 		return nil
 	})
@@ -219,6 +224,7 @@ WHERE id = ? AND status = ?
 // RejectLineup 拒绝一个尚未采用的候选方案。
 func (s *Store) RejectLineup(id int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
+		updatedAt := nowTimestamp()
 		var status lineup.Status
 		var isFinal bool
 		if err := tx.QueryRow(`
@@ -240,9 +246,9 @@ WHERE l.id = ?
 		}
 		result, err := tx.Exec(`
 UPDATE lineups
-SET status = ?
+SET status = ?, updated_at = ?
 WHERE id = ? AND status = ?
-`, int(lineup.StatusRejected), id, int(lineup.StatusValidated))
+`, int(lineup.StatusRejected), updatedAt, id, int(lineup.StatusValidated))
 		if err != nil {
 			return err
 		}

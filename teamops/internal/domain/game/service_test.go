@@ -133,6 +133,27 @@ func TestBuildGameAnalysisComputesPlayerStats(t *testing.T) {
 	}
 }
 
+func TestBuildGameAnalysisIncludesBothTeamsWithSamePlayerName(t *testing.T) {
+	details := GameDetails{Game: Game{ID: 9, OwnTeamID: 1, OpponentTeamID: 2, Opponent: "海港队", BattingSide: BattingSideTop, IsFinal: true}, Lineups: []GameLineup{{Team: TeamOwn, Player: "同名"}, {Team: TeamOpponent, Player: "同名"}}, Events: []GameEvent{
+		{GameID: 9, Inning: 1, Half: HalfTop, Sequence: 1, EventKind: EventKindPlateResult, Player: "同名", Team: TeamOwn, Result: int(PlateResultSingle), RelatedPlayer: "同名", PitchSequence: "X", Value: 1},
+		{GameID: 9, Inning: 1, Half: HalfBottom, Sequence: 1, EventKind: EventKindPlateResult, Player: "同名", Team: TeamOpponent, Result: int(PlateResultStrikeout), RelatedPlayer: "同名", PitchSequence: "S,S,S", OutsOnPlay: 1, Value: 1},
+	}}
+	result, err := BuildGameAnalysis(details, "2026-07-13T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Summaries) != 2 {
+		t.Fatalf("expected both same-name players, got %+v", result.Summaries)
+	}
+	seen := map[int64]bool{}
+	for _, s := range result.Summaries {
+		seen[s.TeamID] = true
+	}
+	if !seen[1] || !seen[2] {
+		t.Fatalf("missing team attribution: %+v", result.Summaries)
+	}
+}
+
 func intPtr(value int) *int {
 	return &value
 }

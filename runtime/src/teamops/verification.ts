@@ -62,6 +62,14 @@ export function buildVerificationRequests(
   const data = asObject(envelope.data);
 
   switch (key) {
+    case "team init": {
+      const name = requiredPrimitive(inputObject, "own_team");
+      return [{ args: ["team", "read", "--name", String(name)], expected: { name, scope: "own" } }];
+    }
+    case "team add": {
+      const name = requiredPrimitive(inputObject, "name");
+      return [{ args: ["team", "read", "--name", String(name)], expected: { name, scope: "opponent" } }];
+    }
     case "batch write": {
       const inputs = operationInputs(input);
       return operationResults(data).flatMap((operation) => {
@@ -88,7 +96,8 @@ export function buildVerificationRequests(
     }
     case "player add": {
       const name = requiredPrimitive(inputObject, "name");
-      return [{ args: ["player", "read", "--name", String(name)], expected: { name } }];
+      const team = primitive(inputObject, "team");
+      return [{ args: ["player", "read", "--name", String(name), ...(team ? ["--team", String(team)] : [])], expected: { name } }];
     }
     case "report write": {
       const name = requiredPrimitive(inputObject, "name");

@@ -15,6 +15,7 @@ import (
 	"teamops/internal/domain/person"
 	"teamops/internal/domain/player"
 	"teamops/internal/domain/report"
+	"teamops/internal/domain/team"
 	"teamops/internal/sqlite"
 
 	"github.com/alecthomas/kong"
@@ -25,6 +26,7 @@ type CLI struct {
 	DB       string      `help:"Path to the SQLite database." default:"bastion.db" placeholder:"PATH"`
 	Format   string      `help:"Output format: json,toml,text." enum:"json,toml,text" default:"json"`
 	Batch    BatchCmd    `cmd:"" help:"Run multiple registered commands from one JSON input."`
+	Team     TeamCmd     `cmd:"" help:"Initialize and manage teams."`
 	Player   PlayerCmd   `cmd:"" help:"Manage players."`
 	Report   ReportCmd   `cmd:"" help:"Manage training reports."`
 	Game     GameCmd     `cmd:"" help:"Manage games."`
@@ -47,6 +49,23 @@ type BatchWriteCmd struct {
 	Input string `required:"" help:"Path to batch JSON input, or - for stdin." placeholder:"PATH"`
 }
 
+type TeamCmd struct {
+	Init TeamInitCmd `cmd:"" help:"Initialize the own team."`
+	Add  TeamAddCmd  `cmd:"" help:"Add an opponent team."`
+	Read TeamReadCmd `cmd:"" help:"Read a team."`
+	List TeamListCmd `cmd:"" help:"List teams."`
+}
+type TeamInitCmd struct {
+	Input string `required:"" help:"Path to team initialization JSON input, or - for stdin." placeholder:"PATH"`
+}
+type TeamAddCmd struct {
+	Input string `required:"" help:"Path to team JSON input, or - for stdin." placeholder:"PATH"`
+}
+type TeamReadCmd struct {
+	Name string `required:"" help:"Team name."`
+}
+type TeamListCmd struct{}
+
 type PlayerCmd struct {
 	Add  PlayerAddCmd  `cmd:"" help:"Add a player."`
 	Read PlayerReadCmd `cmd:"" help:"Read a player by name."`
@@ -59,9 +78,13 @@ type PlayerAddCmd struct {
 
 type PlayerReadCmd struct {
 	Name string `required:"" help:"Player name to read."`
+	Team string `help:"Optional team name; defaults to own team."`
 }
 
-type PlayerListCmd struct{}
+type PlayerListCmd struct {
+	Team  string `help:"Optional team name."`
+	Scope string `help:"Optional scope: own,opponent."`
+}
 
 type ReportCmd struct {
 	Write ReportWriteCmd `cmd:"" help:"Write a training report."`
@@ -138,6 +161,7 @@ type GameAnalysisGenerateCmd struct {
 type GameAnalysisReadCmd struct {
 	GameID int64  `required:"" help:"Game id to read generated analysis for."`
 	Player string `help:"Optional player name; when set only this player's analysis is shown."`
+	Team   string `help:"Optional team name; defaults to own team."`
 }
 
 type GameAnalysisListCmd struct{}
@@ -250,11 +274,13 @@ type PersonAnalysisReadCmd struct {
 	Name string `required:"" help:"Player name; must be a registered player."`
 	From string `required:"" help:"Span start date, formatted as YYYY-MM-DD, inclusive."`
 	To   string `required:"" help:"Span end date, formatted as YYYY-MM-DD, inclusive; must be >= --from."`
+	Team string `help:"Optional team name; defaults to own team."`
 }
 
 type Context struct {
 	DB            string
 	PlayerService *player.Service
+	TeamService   *team.Service
 	ReportService *report.Service
 	GameService   *game.Service
 	LineupService *lineup.Service
@@ -306,10 +332,22 @@ func RunWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Write
 		writeError(stdout, app.Format, err)
 		return err
 	}
+	teamService := team.NewService(store)
+	initialized, err := teamService.IsInitialized()
+	if err != nil {
+		writeError(stdout, app.Format, err)
+		return err
+	}
+	if !initialized && ctx.Command() != "team init" && ctx.Command() != "team list" && ctx.Command() != "contract" {
+		err = errors.New("own team is not initialized; run team init first")
+		writeError(stdout, app.Format, err)
+		return err
+	}
 
 	runErr := ctx.Run(&Context{
 		DB:            app.DB,
 		PlayerService: player.NewService(store),
+		TeamService:   teamService,
 		ReportService: report.NewService(store),
 		GameService:   game.NewService(store),
 		LineupService: lineup.NewService(store),
@@ -335,13 +373,54 @@ func (cmd *BatchWriteCmd) Run(ctx *Context) error {
 	return runBatch(ctx, cmd.Input, "write", []string{"batch", "write"})
 }
 
+func (cmd *TeamInitCmd) Run(ctx *Context) error {
+	var input teamInitInput
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"team", "init"}); err != nil {
+		return err
+	}
+	t, err := ctx.TeamService.Initialize(input.OwnTeam)
+	if err != nil {
+		return err
+	}
+	return writeCommandResult(ctx, map[string]any{"resource": "team", "id": t.ID, "name": t.Name, "scope": t.Scope}, fmt.Sprintf("own team initialized: %s\n", t.Name))
+}
+func (cmd *TeamAddCmd) Run(ctx *Context) error {
+	var input teamAddInput
+	if err := readJSONInput(ctx, cmd.Input, &input, []string{"team", "add"}); err != nil {
+		return err
+	}
+	t, err := ctx.TeamService.Add(input.Name)
+	if err != nil {
+		return err
+	}
+	return writeCommandResult(ctx, map[string]any{"resource": "team", "id": t.ID, "name": t.Name, "scope": t.Scope}, fmt.Sprintf("team added: %s\n", t.Name))
+}
+func (cmd *TeamReadCmd) Run(ctx *Context) error {
+	t, err := ctx.TeamService.Get(cmd.Name)
+	if err != nil {
+		return err
+	}
+	return writeStructured(ctx, teamReadTOML{Team: teamTOMLFrom(t)})
+}
+func (cmd *TeamListCmd) Run(ctx *Context) error {
+	ts, err := ctx.TeamService.List()
+	if err != nil {
+		return err
+	}
+	out := teamListTOML{Teams: make([]teamTOML, 0, len(ts))}
+	for _, t := range ts {
+		out.Teams = append(out.Teams, teamTOMLFrom(t))
+	}
+	return writeStructured(ctx, out)
+}
+
 // Run 读取球员输入并调用球员创建服务。
 func (cmd *PlayerAddCmd) Run(ctx *Context) error {
 	var input playerAddInput
 	if err := readJSONInput(ctx, cmd.Input, &input, []string{"player", "add"}); err != nil {
 		return err
 	}
-	player, err := ctx.PlayerService.AddPlayer(input.Name, input.Number, input.Bat, input.Throw, input.Positions)
+	player, err := ctx.PlayerService.AddPlayerForTeam(input.Name, input.Team, input.Number, input.Bat, input.Throw, input.Positions)
 	if err != nil {
 		return err
 	}
@@ -350,7 +429,7 @@ func (cmd *PlayerAddCmd) Run(ctx *Context) error {
 
 // Run 按名称读取并输出球员资料。
 func (cmd *PlayerReadCmd) Run(ctx *Context) error {
-	player, err := ctx.PlayerService.GetPlayer(cmd.Name)
+	player, err := ctx.PlayerService.GetPlayerForTeam(cmd.Name, cmd.Team)
 	if err != nil {
 		return err
 	}
@@ -359,7 +438,7 @@ func (cmd *PlayerReadCmd) Run(ctx *Context) error {
 
 // Run 列出全部已登记球员。
 func (cmd *PlayerListCmd) Run(ctx *Context) error {
-	players, err := ctx.PlayerService.ListPlayers()
+	players, err := ctx.PlayerService.ListPlayersFiltered(cmd.Team, cmd.Scope)
 	if err != nil {
 		return err
 	}
@@ -541,7 +620,7 @@ func (cmd *GameAnalysisGenerateCmd) Run(ctx *Context) error {
 
 // Run 读取比赛分析，可选筛选球员。
 func (cmd *GameAnalysisReadCmd) Run(ctx *Context) error {
-	analysis, err := ctx.GameService.ReadGameAnalysis(cmd.GameID, cmd.Player)
+	analysis, err := ctx.GameService.ReadGameAnalysisForTeam(cmd.GameID, cmd.Player, cmd.Team)
 	if err != nil {
 		return err
 	}
@@ -743,7 +822,7 @@ func (cmd *DrillTrainingReadCmd) Run(ctx *Context) error {
 
 // Run 读取球员跨周期表现分析。
 func (cmd *PersonAnalysisReadCmd) Run(ctx *Context) error {
-	result, err := ctx.PersonService.ReadPersonAnalysis(cmd.Name, cmd.From, cmd.To)
+	result, err := ctx.PersonService.ReadPersonAnalysisForTeam(cmd.Name, cmd.Team, cmd.From, cmd.To)
 	if err != nil {
 		return err
 	}
@@ -1122,6 +1201,9 @@ type playerListTOML struct {
 }
 
 type playerTOML struct {
+	ID        int64  `toml:"id"`
+	Team      string `toml:"team"`
+	Scope     string `toml:"scope"`
 	Name      string `toml:"name"`
 	Number    int    `toml:"number"`
 	Bat       string `toml:"bat"`
@@ -1132,6 +1214,7 @@ type playerTOML struct {
 // playerTOMLFrom 将球员领域对象转换为 TOML 输出对象。
 func playerTOMLFrom(p player.Player) playerTOML {
 	return playerTOML{
+		ID: p.ID, Team: p.Team, Scope: p.Scope,
 		Name:      p.Name,
 		Number:    p.Number,
 		Bat:       player.FormatHands(p.Bat),
@@ -1162,11 +1245,34 @@ func reportTOMLFrom(r report.Report) reportTOML {
 }
 
 type playerAddInput struct {
+	Team      string `json:"team"`
 	Name      string `json:"name"`
 	Number    int    `json:"number"`
 	Bat       string `json:"bat"`
 	Throw     string `json:"throw"`
 	Positions string `json:"positions"`
+}
+
+type teamInitInput struct {
+	OwnTeam string `json:"own_team"`
+}
+type teamAddInput struct {
+	Name string `json:"name"`
+}
+type teamTOML struct {
+	ID    int64  `toml:"id"`
+	Name  string `toml:"name"`
+	Scope string `toml:"scope"`
+}
+type teamReadTOML struct {
+	Team teamTOML `toml:"team"`
+}
+type teamListTOML struct {
+	Teams []teamTOML `toml:"teams"`
+}
+
+func teamTOMLFrom(t team.Team) teamTOML {
+	return teamTOML{ID: t.ID, Name: t.Name, Scope: string(t.Scope)}
 }
 
 type reportWriteInput struct {
@@ -1795,33 +1901,37 @@ type gameListTOML struct {
 }
 
 type gameTOML struct {
-	ID            int64  `toml:"id"`
-	Date          string `toml:"date"`
-	StartTime     string `toml:"start_time"`
-	Opponent      string `toml:"opponent"`
-	BattingSide   string `toml:"batting_side"`
-	OwnScore      int    `toml:"own_score"`
-	OpponentScore int    `toml:"opponent_score"`
-	Score         string `toml:"score"`
-	IsFinal       bool   `toml:"is_final"`
-	Raw           string `toml:"raw"`
-	CreatedAt     string `toml:"created_at"`
+	ID             int64  `toml:"id"`
+	OwnTeamID      int64  `toml:"own_team_id"`
+	OpponentTeamID int64  `toml:"opponent_team_id"`
+	Date           string `toml:"date"`
+	StartTime      string `toml:"start_time"`
+	Opponent       string `toml:"opponent"`
+	BattingSide    string `toml:"batting_side"`
+	OwnScore       int    `toml:"own_score"`
+	OpponentScore  int    `toml:"opponent_score"`
+	Score          string `toml:"score"`
+	IsFinal        bool   `toml:"is_final"`
+	Raw            string `toml:"raw"`
+	CreatedAt      string `toml:"created_at"`
 }
 
 // gameTOMLFrom 将比赛转换为 TOML 输出对象。
 func gameTOMLFrom(g game.Game) gameTOML {
 	return gameTOML{
-		ID:            g.ID,
-		Date:          g.Date,
-		StartTime:     g.StartTime,
-		Opponent:      g.Opponent,
-		BattingSide:   formatBattingSide(g.BattingSide),
-		OwnScore:      g.OwnScore,
-		OpponentScore: g.OpponentScore,
-		Score:         fmt.Sprintf("%d-%d", g.OwnScore, g.OpponentScore),
-		IsFinal:       g.IsFinal,
-		Raw:           g.Raw,
-		CreatedAt:     g.CreatedAt,
+		ID:             g.ID,
+		OwnTeamID:      g.OwnTeamID,
+		OpponentTeamID: g.OpponentTeamID,
+		Date:           g.Date,
+		StartTime:      g.StartTime,
+		Opponent:       g.Opponent,
+		BattingSide:    formatBattingSide(g.BattingSide),
+		OwnScore:       g.OwnScore,
+		OpponentScore:  g.OpponentScore,
+		Score:          fmt.Sprintf("%d-%d", g.OwnScore, g.OpponentScore),
+		IsFinal:        g.IsFinal,
+		Raw:            g.Raw,
+		CreatedAt:      g.CreatedAt,
 	}
 }
 
@@ -1933,6 +2043,7 @@ func gameAnalysisHeaderTOMLFrom(row game.GameAnalysis) gameAnalysisHeaderTOML {
 }
 
 type playerSummaryTOML struct {
+	TeamID               int64  `toml:"team_id"`
 	Player               string `toml:"player"`
 	BattingOrder         *int   `toml:"batting_order,omitempty"`
 	Positions            string `toml:"positions"`
@@ -1947,6 +2058,7 @@ type playerSummaryTOML struct {
 // playerSummaryTOMLFrom 转换球员单场表现摘要。
 func playerSummaryTOMLFrom(row game.PlayerPerformanceSummary) playerSummaryTOML {
 	return playerSummaryTOML{
+		TeamID:               row.TeamID,
 		Player:               row.Player,
 		BattingOrder:         row.BattingOrder,
 		Positions:            row.Positions,
@@ -1960,6 +2072,7 @@ func playerSummaryTOMLFrom(row game.PlayerPerformanceSummary) playerSummaryTOML 
 }
 
 type battingTOML struct {
+	TeamID                     int64   `toml:"team_id"`
 	Player                     string  `toml:"player"`
 	PA                         int     `toml:"pa"`
 	AtBats                     int     `toml:"at_bats"`
@@ -1983,6 +2096,7 @@ type battingTOML struct {
 // battingTOMLFrom 转换打击统计。
 func battingTOMLFrom(row game.PlayerBattingStats) battingTOML {
 	return battingTOML{
+		TeamID:                     row.TeamID,
 		Player:                     row.Player,
 		PA:                         row.PA,
 		AtBats:                     row.AtBats,
@@ -2005,6 +2119,7 @@ func battingTOMLFrom(row game.PlayerBattingStats) battingTOML {
 }
 
 type baserunningTOML struct {
+	TeamID               int64   `toml:"team_id"`
 	Player               string  `toml:"player"`
 	Runs                 int     `toml:"runs"`
 	StolenBases          int     `toml:"stolen_bases"`
@@ -2018,6 +2133,7 @@ type baserunningTOML struct {
 // baserunningTOMLFrom 转换跑垒统计。
 func baserunningTOMLFrom(row game.PlayerBaserunningStats) baserunningTOML {
 	return baserunningTOML{
+		TeamID:               row.TeamID,
 		Player:               row.Player,
 		Runs:                 row.Runs,
 		StolenBases:          row.StolenBases,
@@ -2030,6 +2146,7 @@ func baserunningTOMLFrom(row game.PlayerBaserunningStats) baserunningTOML {
 }
 
 type pitchingTOML struct {
+	TeamID             int64    `toml:"team_id"`
 	Player             string   `toml:"player"`
 	OutsRecorded       int      `toml:"outs_recorded"`
 	InningsPitched     float64  `toml:"innings_pitched"`
@@ -2053,6 +2170,7 @@ type pitchingTOML struct {
 // pitchingTOMLFrom 转换投球统计。
 func pitchingTOMLFrom(row game.PlayerPitchingStats) pitchingTOML {
 	return pitchingTOML{
+		TeamID:             row.TeamID,
 		Player:             row.Player,
 		OutsRecorded:       row.OutsRecorded,
 		InningsPitched:     row.InningsPitched,
@@ -2075,6 +2193,7 @@ func pitchingTOMLFrom(row game.PlayerPitchingStats) pitchingTOML {
 }
 
 type fieldingTOML struct {
+	TeamID             int64   `toml:"team_id"`
 	Player             string  `toml:"player"`
 	Positions          string  `toml:"positions"`
 	Putouts            int     `toml:"putouts"`
@@ -2090,6 +2209,7 @@ type fieldingTOML struct {
 // fieldingTOMLFrom 转换守备统计。
 func fieldingTOMLFrom(row game.PlayerFieldingStats) fieldingTOML {
 	return fieldingTOML{
+		TeamID:             row.TeamID,
 		Player:             row.Player,
 		Positions:          row.Positions,
 		Putouts:            row.Putouts,
