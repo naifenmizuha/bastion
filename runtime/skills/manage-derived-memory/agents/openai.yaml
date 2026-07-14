@@ -1,0 +1,4 @@
+interface:
+  display_name: "Derived Memory Manager"
+  short_description: "Discover and maintain reusable derived conclusions"
+  default_prompt: "Use $manage-derived-memory to find, validate, save, or rebuild a derived conclusion."

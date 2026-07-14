@@ -1,21 +1,25 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
-import type { CliObservationLedger } from "./ledger.ts";
+import type { DerivedMemoryEvidenceRegistry } from "./evidence-registry.ts";
 import type { DerivedMemoryStore } from "./store.ts";
 import type {
   ChangeEventSource,
-  DerivedMemorySearchScope,
+  DerivedMemoryInvalidation,
+  DerivedMemoryListScope,
   DerivedMemoryVisibility,
   DerivedMemoryWithDependencies,
+  DomainChangeEvent,
   PrincipalContext,
+  ReplaceDerivedMemoryInput,
   SaveDerivedMemoryInput,
+  VerifiedTeamOpsEvidence,
 } from "./types.ts";
 import type { FreshnessProvider } from "./freshness.ts";
 
-const MAX_CONCLUSION_LENGTH = 4_000;
-const MAX_LABEL_LENGTH = 128;
-const MAX_LABELS = 16;
+const MAX_CONTENT_LENGTH = 4_000;
+const MAX_TITLE_LENGTH = 128;
 const MAX_DEPENDENCIES = 12;
+const MAX_REBUILD_INSTRUCTION_LENGTH = 2_000;
 
 const DependencySchema = Type.Object(
   {
@@ -32,23 +36,20 @@ const DerivedMemoryActionParameters = Type.Union([
   Type.Object(
     {
       action: Type.Literal("save"),
-      kind: Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-      subjectKeys: Type.Array(
-        Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-        { minItems: 1, maxItems: MAX_LABELS },
-      ),
-      topics: Type.Array(
-        Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-        { minItems: 1, maxItems: MAX_LABELS },
-      ),
-      conclusion: Type.String({
+      title: Type.String({
         minLength: 1,
-        maxLength: MAX_CONCLUSION_LENGTH,
+        maxLength: MAX_TITLE_LENGTH,
+        description: "Standalone title used to discover this memory in list results.",
       }),
-      limitations: Type.Array(
-        Type.String({ minLength: 1, maxLength: 512 }),
-        { maxItems: MAX_LABELS },
-      ),
+      content: Type.String({
+        minLength: 1,
+        maxLength: MAX_CONTENT_LENGTH,
+        description: "Self-contained reusable conclusion, including material scope and limitations.",
+      }),
+      rebuildInstruction: Type.String({
+        minLength: 1,
+        maxLength: MAX_REBUILD_INSTRUCTION_LENGTH,
+      }),
       dependencies: Type.Array(DependencySchema, {
         minItems: 2,
         maxItems: MAX_DEPENDENCIES,
@@ -58,25 +59,54 @@ const DerivedMemoryActionParameters = Type.Union([
   ),
   Type.Object(
     {
-      action: Type.Literal("search"),
-      kind: Type.Optional(
-        Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-      ),
-      subject: Type.Optional(
-        Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-      ),
-      topic: Type.Optional(
-        Type.String({ minLength: 1, maxLength: MAX_LABEL_LENGTH }),
-      ),
-      query: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+      action: Type.Literal("replace"),
+      id: Type.String({ minLength: 1, maxLength: 128 }),
+      title: Type.String({
+        minLength: 1,
+        maxLength: MAX_TITLE_LENGTH,
+        description: "Standalone title used to discover the replacement memory.",
+      }),
+      content: Type.String({
+        minLength: 1,
+        maxLength: MAX_CONTENT_LENGTH,
+        description: "Self-contained rebuilt conclusion, including material scope and limitations.",
+      }),
+      rebuildInstruction: Type.String({
+        minLength: 1,
+        maxLength: MAX_REBUILD_INSTRUCTION_LENGTH,
+      }),
+      dependencies: Type.Array(DependencySchema, {
+        minItems: 2,
+        maxItems: MAX_DEPENDENCIES,
+      }),
+      confirmedByUser: Type.Literal(true),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      action: Type.Literal("list"),
       scope: Type.Optional(Type.Union([
         Type.Literal("all"),
         Type.Literal("private"),
         Type.Literal("staff"),
         Type.Literal("team"),
-      ])),
-      includeStale: Type.Optional(Type.Boolean()),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+      ], {
+        description:
+          "Memory visibility filter only; it never describes the business subject or data range being analyzed. 'all' includes every accessible memory (the caller's private memories plus readable staff/team memories) and is the default. 'private' means only the caller's private memories; 'staff' means only memories published to staff; 'team' means only memories published to the whole team. Omit this field or use 'all' unless the user explicitly restricts the visibility audience of the memories being listed.",
+        default: "all",
+      })),
+      limit: Type.Optional(Type.Integer({
+        minimum: 1,
+        maximum: 50,
+        default: 20,
+        description: "Maximum memory titles in this page; pagination only.",
+      })),
+      offset: Type.Optional(Type.Integer({
+        minimum: 0,
+        default: 0,
+        description: "Zero-based memory-title offset; pagination only.",
+      })),
     },
     { additionalProperties: false },
   ),
@@ -125,15 +155,12 @@ export const DerivedMemoryParameters: TSchema = {
 
 type DerivedMemoryParams =
   | ({ action: "save" } & SaveDerivedMemoryInput)
+  | ({ action: "replace" } & ReplaceDerivedMemoryInput)
   | {
-      action: "search";
-      kind?: string;
-      subject?: string;
-      topic?: string;
-      query?: string;
-      scope?: DerivedMemorySearchScope;
-      includeStale?: boolean;
+      action: "list";
+      scope?: DerivedMemoryListScope;
       limit?: number;
+      offset?: number;
     }
   | { action: "read"; id: string }
   | {
@@ -158,7 +185,7 @@ export interface DerivedMemoryToolDetails {
 
 export interface DerivedMemoryExtensionOptions {
   store: DerivedMemoryStore;
-  ledger: CliObservationLedger;
+  evidenceRegistry: DerivedMemoryEvidenceRegistry;
   changeEvents: ChangeEventSource;
   freshness: FreshnessProvider;
   principal: PrincipalContext;
@@ -178,6 +205,7 @@ function changedSourceKeys(
 function validateFreshness(
   memory: DerivedMemoryWithDependencies,
   options: DerivedMemoryExtensionOptions,
+  event?: DomainChangeEvent,
 ): "fresh" | "stale" | "unknown" {
   if (memory.status === "stale") return "stale";
   try {
@@ -203,6 +231,7 @@ function validateFreshness(
         options.principal.authorityId,
         memory.id,
         [...new Set(changed)],
+        event ? { event } : {},
       );
       return "stale";
     }
@@ -260,48 +289,148 @@ function result(details: DerivedMemoryToolDetails) {
   };
 }
 
-function unique(values: readonly string[]): boolean {
-  return new Set(values).size === values.length;
-}
-
 function saveValidationError(
-  params: Extract<DerivedMemoryParams, { action: "save" }>,
+  params: Extract<DerivedMemoryParams, { action: "save" | "replace" }>,
 ): DerivedMemoryToolDetails | undefined {
-  if (!unique(params.subjectKeys) || !unique(params.topics)) {
+  if (!params.title?.trim() || params.title.length > MAX_TITLE_LENGTH) {
     return {
       kind: "derived_memory",
       ok: false,
-      action: "save",
+      action: params.action,
       error: {
-        code: "DUPLICATE_LABEL",
-        message: "subjectKeys and topics must not contain duplicates",
+        code: "INVALID_TITLE",
+        message: "title must describe the analysis represented by this memory",
+      },
+    };
+  }
+  if (!params.content?.trim() || params.content.length > MAX_CONTENT_LENGTH) {
+    return {
+      kind: "derived_memory",
+      ok: false,
+      action: params.action,
+      error: {
+        code: "INVALID_CONTENT",
+        message: "content must contain the reusable derived conclusion",
+      },
+    };
+  }
+  if (!params.rebuildInstruction?.trim()) {
+    return {
+      kind: "derived_memory",
+      ok: false,
+      action: params.action,
+      error: {
+        code: "INVALID_REBUILD_INSTRUCTION",
+        message: "rebuildInstruction must explain how to resolve and reanalyze future evidence",
       },
     };
   }
   return undefined;
 }
 
+function memoryReference(memory: DerivedMemoryWithDependencies) {
+  return { id: memory.id, title: memory.title };
+}
+
+function staleReason(invalidations: readonly DerivedMemoryInvalidation[]): string {
+  const latest = invalidations.at(-1);
+  if (latest?.sourceKeys?.length) {
+    return `Source data changed: ${latest.sourceKeys.join(", ")}`;
+  }
+  if (latest?.topics.length) {
+    return `Source data changed in: ${latest.topics.join(", ")}`;
+  }
+  return "One or more source dependencies changed.";
+}
+
+function resolveDependencies(
+  params: Extract<DerivedMemoryParams, { action: "save" | "replace" }>,
+  evidenceRegistry: DerivedMemoryEvidenceRegistry,
+):
+  | { ok: true; dependencies: VerifiedTeamOpsEvidence[] }
+  | { ok: false; result: DerivedMemoryToolDetails } {
+  try {
+    const dependencies = evidenceRegistry.resolveTeamOpsDependencies(
+      params.dependencies,
+    );
+    if (dependencies.length < 2) {
+      return {
+        ok: false,
+        result: {
+          kind: "derived_memory",
+          ok: false,
+          action: params.action,
+          error: {
+            code: "INSUFFICIENT_DEPENDENCIES",
+            message:
+              "a derived memory requires at least two distinct successful teamops reads",
+          },
+        },
+      };
+    }
+    return { ok: true, dependencies };
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "DEPENDENCY_ERROR";
+    return {
+      ok: false,
+      result: {
+        kind: "derived_memory",
+        ok: false,
+        action: params.action,
+        error: {
+          code,
+          message:
+            code === "DUPLICATE_DEPENDENCY"
+              ? "dependencies must contain distinct CLI commands"
+              : "every dependency must exactly match a successful teamops read in the current session",
+        },
+      },
+    };
+  }
+}
+
+function replacementSourcesAreCurrent(
+  dependencies: readonly VerifiedTeamOpsEvidence[],
+  freshness: FreshnessProvider,
+): "current" | "changed" | "unknown" {
+  try {
+    for (const dependency of dependencies) {
+      const current = freshness.snapshot({
+        args: dependency.command,
+        ...(dependency.input ? { input: dependency.input } : {}),
+      });
+      if (current.hash !== dependency.sourceSnapshot.hash) return "changed";
+    }
+    return "current";
+  } catch {
+    return "unknown";
+  }
+}
+
 export function createDerivedMemoryExtension(
   options: DerivedMemoryExtensionOptions,
 ): ExtensionFactory {
   return (pi) => {
-    const unsubscribe = options.changeEvents.subscribe(() => {
-      for (const memory of options.store.freshMemories(options.principal.authorityId)) {
-        validateFreshness(memory, options);
+    const unsubscribe = options.changeEvents.subscribe((event) => {
+      for (const memory of options.store.freshMemoriesForTopics(
+        options.principal.authorityId,
+        event.topics,
+      )) {
+        validateFreshness(memory, options, event);
       }
     });
     pi.on("session_shutdown", () => {
       unsubscribe();
-      options.ledger.clear();
+      options.evidenceRegistry.clear();
     });
 
     pi.registerTool({
       name: "derived_memory",
       label: "Derived Memory",
       description:
-        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. Memories are private by default and may be explicitly published to staff or team scope. This is not authoritative data. Never rely on stale memories.",
+        "Discover and maintain reusable derived conclusions. Before any trend, comparison, diagnosis, risk, or recommendation that may require two or more authoritative reads, finish list and any candidate read calls before calling domain-data tools; never emit memory and domain calls in the same assistant batch. After a fresh read, answer directly if its content fully covers the request, otherwise read only the domain data needed for uncovered subquestions. Do not re-read covered sources merely because the memory is from an earlier session or time. Scope filters memory visibility only and must not be inferred from the business subject. Never rely on stale or unknown memories.",
       promptSnippet:
-        "Search, save, read, publish, withdraw, or explicitly forget dependency-backed derived conclusions",
+        "List memory titles, read selected content, save, replace after confirmation, publish, withdraw, or explicitly forget derived conclusions",
       parameters: DerivedMemoryParameters,
       executionMode: "sequential",
 
@@ -310,46 +439,19 @@ export function createDerivedMemoryExtension(
         if (params.action === "save") {
           const validationError = saveValidationError(params);
           if (validationError) return result(validationError);
-          let dependencies;
+          const resolved = resolveDependencies(params, options.evidenceRegistry);
+          if (!resolved.ok) return result(resolved.result);
           try {
-            dependencies = options.ledger.resolveDependencies(
-              params.dependencies,
+            const memory = options.store.save(
+              options.principal,
+              params,
+              resolved.dependencies,
             );
-            if (dependencies.length < 2) {
-              return result({
-                kind: "derived_memory",
-                ok: false,
-                action: "save",
-                error: {
-                  code: "INSUFFICIENT_DEPENDENCIES",
-                  message:
-                    "a derived memory requires at least two distinct successful teamops reads",
-                },
-              });
-            }
-          } catch (error) {
-            const code =
-              error instanceof Error ? error.message : "DEPENDENCY_ERROR";
-            return result({
-              kind: "derived_memory",
-              ok: false,
-              action: "save",
-              error: {
-                code,
-                message:
-                  code === "DUPLICATE_DEPENDENCY"
-                    ? "dependencies must contain distinct CLI commands"
-                    : "every dependency must exactly match a successful teamops read in the current session",
-              },
-            });
-          }
-          try {
-            const memory = options.store.save(options.principal, params, dependencies);
             return result({
               kind: "derived_memory",
               ok: true,
               action: "save",
-              data: memory,
+              data: memoryReference(memory),
             });
           } catch {
             return result({
@@ -364,59 +466,141 @@ export function createDerivedMemoryExtension(
           }
         }
 
-        if (params.action === "search") {
+        if (params.action === "replace") {
+          if (params.confirmedByUser !== true) {
+            return errorResult(
+              "replace",
+              "CONFIRMATION_REQUIRED",
+              "replacing a stale memory requires explicit user confirmation",
+            );
+          }
+          const validationError = saveValidationError(params);
+          if (validationError) return result(validationError);
+          const previous = readAccessible(options.store, options.principal, params.id);
+          if (!previous) {
+            return errorResult("replace", "NOT_FOUND", `derived memory not found: ${params.id}`);
+          }
+          if (previous.ownerUserId !== options.principal.userId) {
+            return errorResult(
+              "replace",
+              "FORBIDDEN",
+              "only the memory owner can replace a stale memory",
+            );
+          }
+          const previousStatus = validateFreshness(previous, options);
+          if (previousStatus === "unknown") {
+            return errorResult(
+              "replace",
+              "FRESHNESS_UNKNOWN",
+              "the old memory freshness could not be verified",
+            );
+          }
+          if (previousStatus !== "stale") {
+            return errorResult(
+              "replace",
+              "NOT_STALE",
+              "only a stale derived memory can be replaced",
+            );
+          }
+          if (previous.supersededById) {
+            return result({
+              kind: "derived_memory",
+              ok: false,
+              action: "replace",
+              data: { successorId: previous.supersededById },
+              error: {
+                code: "ALREADY_SUPERSEDED",
+                message: `derived memory already has a replacement: ${previous.supersededById}`,
+              },
+            });
+          }
+          const resolved = resolveDependencies(params, options.evidenceRegistry);
+          if (!resolved.ok) return result(resolved.result);
+          const sourceStatus = replacementSourcesAreCurrent(
+            resolved.dependencies,
+            options.freshness,
+          );
+          if (sourceStatus !== "current") {
+            return errorResult(
+              "replace",
+              sourceStatus === "changed" ? "SOURCE_CHANGED" : "FRESHNESS_UNKNOWN",
+              sourceStatus === "changed"
+                ? "a replacement source changed after it was read; refresh every dependency and try again"
+                : "replacement source freshness could not be verified",
+            );
+          }
+          try {
+            const replaced = options.store.replace(
+              options.principal,
+              params,
+              resolved.dependencies,
+            );
+            if (replaced.ok) {
+              return result({
+                kind: "derived_memory",
+                ok: true,
+                action: "replace",
+                data: memoryReference(replaced.memory),
+              });
+            }
+            return result({
+              kind: "derived_memory",
+              ok: false,
+              action: "replace",
+              ...(replaced.successorId
+                ? { data: { successorId: replaced.successorId } }
+                : {}),
+              error: {
+                code: replaced.code,
+                message: replaced.code === "ALREADY_SUPERSEDED"
+                  ? `derived memory already has a replacement${replaced.successorId ? `: ${replaced.successorId}` : ""}`
+                  : replaced.code === "NOT_STALE"
+                  ? "only a stale derived memory can be replaced"
+                  : `derived memory not found: ${params.id}`,
+              },
+            });
+          } catch {
+            return errorResult(
+              "replace",
+              "STORAGE_ERROR",
+              "failed to persist the derived memory replacement",
+            );
+          }
+        }
+
+        if (params.action === "list") {
           const requestedScope = params.scope ?? "all";
           if (requestedScope === "staff" && !canReadStaff(options.principal)) {
-            return errorResult("search", "FORBIDDEN", "players cannot search staff memories");
+            return errorResult("list", "FORBIDDEN", "players cannot list staff memories");
           }
-          const scopes = requestedScope === "all"
-            ? accessibleScopes(options.principal)
-            : [requestedScope];
-          let unknownCount = 0;
-          const candidates = scopes.flatMap((scope) => {
-            if (scope === "private") return options.store.searchPrivate(options.principal, params);
-            if (scope === "staff") return options.store.searchStaff(options.principal, params);
-            return options.store.searchTeam(options.principal, params);
-          });
-          const validated = candidates.flatMap((memory) => {
-            const full = readForScope(
-              options.store,
-              options.principal,
-              memory.visibility,
-              memory.id,
-            )!;
-            const status = validateFreshness(full, options);
-            if (status === "unknown") unknownCount += 1;
-            if (status === "unknown" || (!params.includeStale && status === "stale")) return [];
-            return [{ ...memory, status }];
-          });
-          const uniqueMemories = [...new Map(
-            validated
-              .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
-              .map((memory) => [memory.id, memory]),
-          ).values()].slice(0, params.limit ?? 10);
-          const memories = uniqueMemories.map((memory) => ({
+          const limit = params.limit ?? 20;
+          const offset = params.offset ?? 0;
+          if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+            return errorResult("list", "INVALID_PAGINATION", "limit must be an integer from 1 to 50");
+          }
+          if (!Number.isInteger(offset) || offset < 0) {
+            return errorResult("list", "INVALID_PAGINATION", "offset must be a non-negative integer");
+          }
+          const page = options.store.listAccessiblePage(
+            options.principal,
+            requestedScope,
+            limit,
+            offset,
+          );
+          const memories = page.memories.map((memory) => ({
             id: memory.id,
-            ownerUserId: memory.ownerUserId,
-            visibility: memory.visibility,
-            kind: memory.kind,
-            subjectKeys: memory.subjectKeys,
-            topics: memory.topics,
-            conclusion:
-              memory.conclusion.length <= 400
-                ? memory.conclusion
-                : `${memory.conclusion.slice(0, 399)}…`,
-            limitations: memory.limitations,
-            status: memory.status,
-            updatedAt: memory.updatedAt,
+            title: memory.title,
           }));
           return result({
             kind: "derived_memory",
             ok: true,
-            action: "search",
+            action: "list",
             data: {
               memories,
-              ...(unknownCount > 0 ? { unknownCount } : {}),
+              total: page.total,
+              offset,
+              limit,
+              ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
             },
           });
         }
@@ -426,26 +610,36 @@ export function createDerivedMemoryExtension(
           const effectiveStatus = memory
             ? validateFreshness(memory, options)
             : undefined;
+          const invalidations = memory && effectiveStatus === "stale"
+            ? options.store.invalidations(options.principal.authorityId, memory.id)
+            : [];
           return memory
             ? result({
                 kind: "derived_memory",
                 ok: true,
                 action: "read",
-                data: {
-                  ...memory,
-                  status: effectiveStatus,
-                  ...(effectiveStatus === "stale"
-                    ? {
-                        warning:
-                          "Do not rely on this conclusion. Re-run every dependency before deriving a replacement.",
-                      }
-                    : effectiveStatus === "unknown"
-                    ? {
-                        warning:
-                          "Freshness could not be verified. Do not rely on this conclusion until its dependencies can be checked.",
-                      }
-                    : {}),
-                },
+                data: effectiveStatus === "fresh"
+                  ? {
+                      id: memory.id,
+                      title: memory.title,
+                      status: "fresh",
+                      content: memory.content,
+                    }
+                  : effectiveStatus === "stale"
+                  ? {
+                      id: memory.id,
+                      title: memory.title,
+                      status: "stale",
+                      rebuild: {
+                        reason: staleReason(invalidations),
+                        instruction: memory.rebuildInstruction,
+                      },
+                    }
+                  : {
+                      id: memory.id,
+                      title: memory.title,
+                      status: "unknown",
+                    },
               })
             : result({
                 kind: "derived_memory",
@@ -468,7 +662,12 @@ export function createDerivedMemoryExtension(
             params.visibility,
           );
           return memory
-            ? result({ kind: "derived_memory", ok: true, action: "publish", data: memory })
+            ? result({
+                kind: "derived_memory",
+                ok: true,
+                action: "publish",
+                data: memoryReference(memory),
+              })
             : errorResult("publish", "NOT_FOUND", `private derived memory not found: ${params.id}`);
         }
 
@@ -479,7 +678,12 @@ export function createDerivedMemoryExtension(
           }
           const memory = options.store.withdraw(params.id, options.principal);
           return memory
-            ? result({ kind: "derived_memory", ok: true, action: "withdraw", data: memory })
+            ? result({
+                kind: "derived_memory",
+                ok: true,
+                action: "withdraw",
+                data: memoryReference(memory),
+              })
             : errorResult("withdraw", "NOT_FOUND", `published derived memory not found: ${params.id}`);
         }
 

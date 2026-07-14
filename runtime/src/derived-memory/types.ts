@@ -1,7 +1,7 @@
 export type DerivedMemoryStatus = "fresh" | "stale";
 export type EffectiveDerivedMemoryStatus = DerivedMemoryStatus | "unknown";
 export type DerivedMemoryVisibility = "private" | "staff" | "team";
-export type DerivedMemorySearchScope = "all" | DerivedMemoryVisibility;
+export type DerivedMemoryListScope = "all" | DerivedMemoryVisibility;
 export type PrincipalRole = "admin" | "coach" | "player";
 
 export interface PrincipalContext {
@@ -28,17 +28,17 @@ export interface DerivedMemory {
   teamId: string;
   ownerUserId: string;
   visibility: DerivedMemoryVisibility;
-  kind: string;
-  subjectKeys: string[];
-  topics: string[];
-  conclusion: string;
-  limitations: string[];
+  title: string;
+  content: string;
+  rebuildInstruction: string;
   status: DerivedMemoryStatus;
   createdAt: number;
   updatedAt: number;
   publishedAt?: number;
   invalidatedAt?: number;
   invalidatedByEventId?: string;
+  supersedesId?: string;
+  supersededById?: string;
 }
 
 export interface DerivedMemoryDependency {
@@ -72,7 +72,7 @@ export interface ChangeEventPublisher {
   publish(event: DomainChangeEvent): void;
 }
 
-export interface SuccessfulReadObservation {
+export interface VerifiedTeamOpsEvidence {
   command: string[];
   input?: Record<string, unknown>;
   normalizedCommandHash: string;
@@ -87,22 +87,21 @@ export interface DependencyRequest {
 }
 
 export interface SaveDerivedMemoryInput {
-  kind: string;
-  subjectKeys: string[];
-  topics: string[];
-  conclusion: string;
-  limitations: string[];
+  title: string;
+  content: string;
+  rebuildInstruction: string;
   dependencies: DependencyRequest[];
 }
 
-export interface SearchDerivedMemoryInput {
-  scope?: DerivedMemorySearchScope;
-  kind?: string;
-  subject?: string;
-  topic?: string;
-  query?: string;
-  includeStale?: boolean;
+export interface ReplaceDerivedMemoryInput extends SaveDerivedMemoryInput {
+  id: string;
+  confirmedByUser: true;
+}
+
+export interface ListDerivedMemoryInput {
+  scope?: DerivedMemoryListScope;
   limit?: number;
+  offset?: number;
 }
 
 export type DerivedMemorySharingAction = "publish" | "withdraw" | "delete";
