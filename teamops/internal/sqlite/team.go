@@ -98,7 +98,7 @@ func (s *Store) GetTeam(name string) (team.Team, error) {
 }
 
 func (s *Store) ListTeams() ([]team.Team, error) {
-	rows, err := s.db.Query(`SELECT t.id,t.name,t.created_at,t.updated_at,(t.id=COALESCE(c.own_team_id,-1)) FROM teams t LEFT JOIN app_config c ON c.id=1 ORDER BY (t.id=COALESCE(c.own_team_id,-1)) DESC,t.name`)
+	rows, err := s.db.Query(`SELECT t.id,t.name,t.created_at,t.updated_at,(t.id=COALESCE(c.own_team_id,-1)) FROM teams t LEFT JOIN app_config c ON c.id=1 WHERE t.name<>? ORDER BY (t.id=COALESCE(c.own_team_id,-1)) DESC,t.name`, legacyOwnTeamName)
 	if err != nil {
 		return nil, err
 	}

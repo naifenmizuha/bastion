@@ -51,17 +51,17 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		}
 		for _, entry := range value.Entries {
 			if _, err := tx.Exec(`
-INSERT INTO lineup_entries (lineup_id, player, role, batting_order, position, suggested_role)
-VALUES (?, ?, ?, ?, ?, ?)
-`, id, entry.Player, int(entry.Role), nullInt(entry.BattingOrder), nullInt(entry.Position), nullString(entry.SuggestedRole)); err != nil {
+INSERT INTO lineup_entries (lineup_id, player_id, player, role, batting_order, position, suggested_role)
+VALUES (?, (SELECT p.id FROM players p JOIN app_config c ON c.own_team_id=p.team_id WHERE c.id=1 AND p.name=?), ?, ?, ?, ?, ?)
+`, id, entry.Player, entry.Player, int(entry.Role), nullInt(entry.BattingOrder), nullInt(entry.Position), nullString(entry.SuggestedRole)); err != nil {
 				return err
 			}
 		}
 		for i, plan := range value.PitchingPlan {
 			if _, err := tx.Exec(`
-INSERT INTO lineup_pitching_plans (lineup_id, player, sequence, role, planned_innings)
-VALUES (?, ?, ?, ?, ?)
-`, id, plan.Player, i+1, int(plan.Role), nullInt(plan.PlannedInnings)); err != nil {
+INSERT INTO lineup_pitching_plans (lineup_id, player_id, player, sequence, role, planned_innings)
+VALUES (?, (SELECT p.id FROM players p JOIN app_config c ON c.own_team_id=p.team_id WHERE c.id=1 AND p.name=?), ?, ?, ?, ?)
+`, id, plan.Player, plan.Player, i+1, int(plan.Role), nullInt(plan.PlannedInnings)); err != nil {
 				return err
 			}
 		}
@@ -211,6 +211,9 @@ WHERE id = ? AND status = ?
 		}
 		if affected != 1 {
 			return fmt.Errorf("lineup not validated: %d", id)
+		}
+		if err := deleteGameAnalysisTx(tx, result.GameID); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(`UPDATE games SET updated_at = ? WHERE id = ?`, updatedAt, result.GameID); err != nil {
 			return err

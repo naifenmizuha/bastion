@@ -1,6 +1,7 @@
 package player
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,6 +20,12 @@ type teamRepository interface {
 	ListPlayersFiltered(team, scope string) ([]Player, error)
 }
 
+type identityRepository interface {
+	AddPlayerReturning(Player) (Player, bool, error)
+	GetPlayerByID(int64) (Player, error)
+	GetPlayerByKey(string) (Player, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -34,18 +41,23 @@ func (s *Service) AddPlayer(name string, number int, batRaw string, throwRaw str
 }
 
 func (s *Service) AddPlayerForTeam(name, team string, number int, batRaw string, throwRaw string, positionsRaw string) (Player, error) {
+	value, _, err := s.AddPlayerForTeamResult(name, team, number, batRaw, throwRaw, positionsRaw)
+	return value, err
+}
+
+func (s *Service) AddPlayerForTeamResult(name, team string, number int, batRaw string, throwRaw string, positionsRaw string) (Player, bool, error) {
 	// 先将文本枚举转换为领域位标记，避免无效数据进入仓库。
 	bat, err := ParseHands(batRaw)
 	if err != nil {
-		return Player{}, fmt.Errorf("invalid --bat: %w", err)
+		return Player{}, false, fmt.Errorf("invalid --bat: %w", err)
 	}
 	throw, err := ParseHands(throwRaw)
 	if err != nil {
-		return Player{}, fmt.Errorf("invalid --throw: %w", err)
+		return Player{}, false, fmt.Errorf("invalid --throw: %w", err)
 	}
 	positions, err := ParsePositions(positionsRaw)
 	if err != nil {
-		return Player{}, fmt.Errorf("invalid --positions: %w", err)
+		return Player{}, false, fmt.Errorf("invalid --positions: %w", err)
 	}
 
 	// 组装并校验名称后，才提交持久化。
@@ -57,27 +69,64 @@ func (s *Service) AddPlayerForTeam(name, team string, number int, batRaw string,
 		Positions: positions,
 	}
 	if player.Name == "" {
-		return Player{}, errors.New("--name cannot be empty")
+		return Player{}, false, errors.New("--name cannot be empty")
+	}
+	if number < 0 {
+		return Player{}, false, fmt.Errorf("invalid --number %d, expected >= 0", number)
 	}
 	repo, ok := s.repo.(teamRepository)
 	if !ok {
 		if strings.TrimSpace(team) != "" {
-			return Player{}, errors.New("team-aware player repository is unavailable")
+			return Player{}, false, errors.New("team-aware player repository is unavailable")
 		}
 		if err := s.repo.AddPlayer(player); err != nil {
-			return Player{}, err
+			return Player{}, false, err
 		}
-		return player, nil
+		return player, true, nil
 	}
 	teamID, teamName, err := repo.ResolvePlayerTeam(strings.TrimSpace(team))
 	if err != nil {
-		return Player{}, err
+		return Player{}, false, err
 	}
 	player.TeamID, player.Team = teamID, teamName
-	if err := s.repo.AddPlayer(player); err != nil {
-		return Player{}, err
+	if identity, ok := s.repo.(identityRepository); ok {
+		return identity.AddPlayerReturning(player)
 	}
-	return player, nil
+	if err := s.repo.AddPlayer(player); err != nil {
+		return Player{}, false, err
+	}
+	return player, true, nil
+}
+
+func (s *Service) GetPlayerByID(id int64) (Player, error) {
+	if id <= 0 {
+		return Player{}, fmt.Errorf("invalid --id %d, expected greater than 0", id)
+	}
+	repo, ok := s.repo.(identityRepository)
+	if !ok {
+		return Player{}, errors.New("identity-aware player repository is unavailable")
+	}
+	p, err := repo.GetPlayerByID(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Player{}, fmt.Errorf("player not found: %d", id)
+	}
+	return p, err
+}
+
+func (s *Service) GetPlayerByKey(key string) (Player, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return Player{}, errors.New("--key cannot be empty")
+	}
+	repo, ok := s.repo.(identityRepository)
+	if !ok {
+		return Player{}, errors.New("identity-aware player repository is unavailable")
+	}
+	p, err := repo.GetPlayerByKey(key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Player{}, fmt.Errorf("player not found: %s", key)
+	}
+	return p, err
 }
 
 func (s *Service) GetPlayerForTeam(name, team string) (Player, error) {

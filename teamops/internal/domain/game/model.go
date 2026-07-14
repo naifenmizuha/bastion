@@ -104,11 +104,14 @@ type Game struct {
 	IsFinal        bool        `json:"is_final"`
 	Raw            string      `json:"raw"`
 	CreatedAt      string      `json:"created_at"`
+	UpdatedAt      string      `json:"updated_at"`
 }
 
 type GameLineup struct {
 	ID               int64  `json:"id"`
 	GameID           int64  `json:"game_id"`
+	PlayerID         int64  `json:"player_id"`
+	PlayerKey        string `json:"player_key"`
 	Team             Team   `json:"team"`
 	Player           string `json:"player"`
 	BattingOrder     *int   `json:"batting_order"`
@@ -116,27 +119,33 @@ type GameLineup struct {
 }
 
 type GameEvent struct {
-	ID            int64         `json:"id"`
-	GameID        int64         `json:"game_id"`
-	Inning        int           `json:"inning"`
-	Half          Half          `json:"half"`
-	PlayNo        *int          `json:"play_no"`
-	Sequence      int           `json:"sequence"`
-	EventKind     EventKind     `json:"event_kind"`
-	Player        string        `json:"player"`
-	Team          Team          `json:"team"`
-	Result        int           `json:"result"`
-	RelatedPlayer string        `json:"related_player"`
-	PitchSequence string        `json:"pitch_sequence"`
-	BaseFrom      *int          `json:"base_from"`
-	BaseTo        *int          `json:"base_to"`
-	Reason        *RunnerReason `json:"reason"`
-	OutsOnPlay    int           `json:"outs_on_play"`
-	RunsScored    int           `json:"runs_scored"`
-	RBIPlayer     string        `json:"rbi_player"`
-	Earned        *bool         `json:"earned"`
-	Value         int           `json:"value"`
-	Description   string        `json:"description"`
+	ID               int64         `json:"id"`
+	GameID           int64         `json:"game_id"`
+	PlayerID         int64         `json:"player_id"`
+	PlayerKey        string        `json:"player_key"`
+	Inning           int           `json:"inning"`
+	Half             Half          `json:"half"`
+	PlayNo           *int          `json:"play_no"`
+	Sequence         int           `json:"sequence"`
+	EventKind        EventKind     `json:"event_kind"`
+	Player           string        `json:"player"`
+	Team             Team          `json:"team"`
+	Result           int           `json:"result"`
+	RelatedPlayer    string        `json:"related_player"`
+	RelatedPlayerID  int64         `json:"related_player_id"`
+	RelatedPlayerKey string        `json:"related_player_key"`
+	PitchSequence    string        `json:"pitch_sequence"`
+	BaseFrom         *int          `json:"base_from"`
+	BaseTo           *int          `json:"base_to"`
+	Reason           *RunnerReason `json:"reason"`
+	OutsOnPlay       int           `json:"outs_on_play"`
+	RunsScored       int           `json:"runs_scored"`
+	RBIPlayer        string        `json:"rbi_player"`
+	RBIPlayerID      int64         `json:"rbi_player_id"`
+	RBIPlayerKey     string        `json:"rbi_player_key"`
+	Earned           *bool         `json:"earned"`
+	Value            int           `json:"value"`
+	Description      string        `json:"description"`
 }
 
 type GameDetails struct {
@@ -146,7 +155,20 @@ type GameDetails struct {
 }
 
 type GameListFilter struct {
-	Date string
+	Date     string
+	From     string
+	To       string
+	Opponent string
+	Final    *bool
+	Result   string
+	Limit    int
+	Offset   int
+}
+
+type EventWriteResult struct {
+	Inserted   int  `json:"inserted"`
+	Updated    int  `json:"updated"`
+	Idempotent bool `json:"idempotent"`
 }
 
 type GameAnalysisResult struct {
@@ -170,12 +192,15 @@ type GameAnalysis struct {
 	OpponentRuns    int
 	PlayersAnalyzed int
 	GeneratedAt     string
+	UpdatedAt       string
 }
 
 type PlayerPerformanceSummary struct {
 	ID                   int64
 	GameID               int64
 	TeamID               int64
+	PlayerID             int64
+	PlayerKey            string
 	Team                 string
 	Player               string
 	BattingOrder         *int
@@ -192,6 +217,8 @@ type PlayerBattingStats struct {
 	ID                 int64
 	GameID             int64
 	TeamID             int64
+	PlayerID           int64
+	PlayerKey          string
 	Team               string
 	Player             string
 	PA                 int
@@ -217,6 +244,8 @@ type PlayerBaserunningStats struct {
 	ID                   int64
 	GameID               int64
 	TeamID               int64
+	PlayerID             int64
+	PlayerKey            string
 	Team                 string
 	Player               string
 	Runs                 int
@@ -232,6 +261,8 @@ type PlayerPitchingStats struct {
 	ID                 int64
 	GameID             int64
 	TeamID             int64
+	PlayerID           int64
+	PlayerKey          string
 	Team               string
 	Player             string
 	OutsRecorded       int
@@ -257,6 +288,8 @@ type PlayerFieldingStats struct {
 	ID                 int64
 	GameID             int64
 	TeamID             int64
+	PlayerID           int64
+	PlayerKey          string
 	Team               string
 	Player             string
 	Positions          string
@@ -287,4 +320,5 @@ type GameAnalysisListItem struct {
 	IsFinal         bool
 	PlayersAnalyzed int
 	GeneratedAt     string
+	UpdatedAt       string
 }

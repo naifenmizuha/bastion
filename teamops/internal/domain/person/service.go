@@ -7,6 +7,7 @@ import (
 
 	"teamops/internal/domain/common"
 	"teamops/internal/domain/game"
+	"teamops/internal/domain/player"
 )
 
 type Repository interface {
@@ -37,6 +38,24 @@ func (s *Service) ReadPersonAnalysis(nameRaw, fromRaw, toRaw string) (AnalysisRe
 
 type teamRepository interface {
 	ResolvePersonTeam(name, team string) (teamID int64, own bool, error error)
+}
+
+type playerKeyRepository interface {
+	GetPlayerByKey(string) (player.Player, error)
+}
+
+// ReadPersonAnalysisByKey resolves the database-local public identity before
+// using the existing player_id + team_id constrained analysis path.
+func (s *Service) ReadPersonAnalysisByKey(key, from, to string) (AnalysisResult, error) {
+	repo, ok := s.repo.(playerKeyRepository)
+	if !ok {
+		return AnalysisResult{}, fmt.Errorf("player-key repository is unavailable")
+	}
+	p, err := repo.GetPlayerByKey(strings.TrimSpace(key))
+	if err != nil {
+		return AnalysisResult{}, fmt.Errorf("player not found: %s", key)
+	}
+	return s.ReadPersonAnalysisForTeam(p.Name, p.Team, from, to)
 }
 
 func (s *Service) ReadPersonAnalysisForTeam(nameRaw, teamRaw, fromRaw, toRaw string) (AnalysisResult, error) {

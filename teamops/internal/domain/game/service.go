@@ -61,12 +61,17 @@ func (s *Service) CreateGame(dateRaw string, startTime string, opponent string, 
 
 // AddGameLineup 校验后为指定比赛追加一条阵容记录。
 func (s *Service) AddGameLineup(gameID int64, team Team, player string, battingOrder *int, startingPosition *int) (int64, error) {
+	return s.AddGameLineupIdentity(gameID, team, "", player, battingOrder, startingPosition)
+}
+
+func (s *Service) AddGameLineupIdentity(gameID int64, team Team, playerKey, player string, battingOrder *int, startingPosition *int) (int64, error) {
 	if gameID <= 0 {
 		return 0, fmt.Errorf("invalid --game-id %d, expected greater than 0", gameID)
 	}
 	lineup := GameLineup{
 		GameID:           gameID,
 		Team:             team,
+		PlayerKey:        playerKey,
 		Player:           player,
 		BattingOrder:     battingOrder,
 		StartingPosition: startingPosition,
@@ -79,10 +84,23 @@ func (s *Service) AddGameLineup(gameID int64, team Team, player string, battingO
 
 // WriteGameEvents 校验并批量追加指定比赛的事实事件。
 func (s *Service) WriteGameEvents(gameID int64, events []GameEvent) (int, error) {
+	result, err := s.WriteGameEventsResult(gameID, events)
+	return result.Inserted + result.Updated, err
+}
+
+type eventUpsertRepository interface {
+	UpsertGameEvents(int64, []GameEvent) (EventWriteResult, error)
+}
+
+func (s *Service) WriteGameEventsResult(gameID int64, events []GameEvent) (EventWriteResult, error) {
 	if err := s.ValidateGameEvents(gameID, events); err != nil {
-		return 0, err
+		return EventWriteResult{}, err
 	}
-	return s.repo.AddGameEvents(gameID, events)
+	if repo, ok := s.repo.(eventUpsertRepository); ok {
+		return repo.UpsertGameEvents(gameID, events)
+	}
+	count, err := s.repo.AddGameEvents(gameID, events)
+	return EventWriteResult{Inserted: count, Idempotent: false}, err
 }
 
 // ValidateGameEvents validates a complete event batch without persisting it.
@@ -135,6 +153,40 @@ func (s *Service) ListGames(dateRaw string) ([]Game, error) {
 			return nil, err
 		}
 		filter.Date = date
+	}
+	return s.repo.ListGames(filter)
+}
+
+func (s *Service) ListGamesFiltered(filter GameListFilter) ([]Game, error) {
+	var err error
+	if filter.Date != "" {
+		filter.Date, err = common.NormalizeDate(filter.Date)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if filter.From != "" {
+		filter.From, err = common.NormalizeDate(filter.From)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if filter.To != "" {
+		filter.To, err = common.NormalizeDate(filter.To)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if filter.From != "" && filter.To != "" && filter.From > filter.To {
+		return nil, errors.New("invalid span: --from is after --to")
+	}
+	filter.Opponent = strings.TrimSpace(filter.Opponent)
+	filter.Result = strings.TrimSpace(filter.Result)
+	if filter.Result != "" && filter.Result != "win" && filter.Result != "loss" && filter.Result != "tie" && filter.Result != "in_progress" {
+		return nil, fmt.Errorf("invalid --result %q", filter.Result)
+	}
+	if filter.Limit < 0 || filter.Offset < 0 {
+		return nil, errors.New("--limit and --offset must be >= 0")
 	}
 	return s.repo.ListGames(filter)
 }
@@ -252,9 +304,13 @@ func prepareGame(dateRaw string, startTime string, opponent string, battingSide 
 	if err != nil {
 		return Game{}, err
 	}
+	normalizedTime, err := common.NormalizeTime(startTime)
+	if err != nil {
+		return Game{}, err
+	}
 	game := Game{
 		Date:          date,
-		StartTime:     strings.TrimSpace(startTime),
+		StartTime:     normalizedTime,
 		Opponent:      strings.TrimSpace(opponent),
 		BattingSide:   battingSide,
 		OwnScore:      ownScore,
@@ -292,8 +348,9 @@ func prepareLineup(lineup *GameLineup, gameID int64) error {
 		return err
 	}
 	lineup.Player = strings.TrimSpace(lineup.Player)
-	if lineup.Player == "" {
-		return errors.New("--player cannot be empty")
+	lineup.PlayerKey = strings.TrimSpace(lineup.PlayerKey)
+	if lineup.Player == "" && lineup.PlayerKey == "" {
+		return errors.New("one of --player or --player-key is required")
 	}
 	if err := ValidateBattingOrder(lineup.BattingOrder); err != nil {
 		return err
@@ -329,8 +386,9 @@ func prepareGameEvent(event *GameEvent, gameID int64) error {
 		return err
 	}
 	event.Player = strings.TrimSpace(event.Player)
-	if event.Player == "" {
-		return errors.New("--player cannot be empty")
+	event.PlayerKey = strings.TrimSpace(event.PlayerKey)
+	if event.Player == "" && event.PlayerKey == "" {
+		return errors.New("one of --player or --player-key is required")
 	}
 	if err := ValidateTeam(event.Team); err != nil {
 		return err
@@ -339,8 +397,10 @@ func prepareGameEvent(event *GameEvent, gameID int64) error {
 		return err
 	}
 	event.RelatedPlayer = strings.TrimSpace(event.RelatedPlayer)
+	event.RelatedPlayerKey = strings.TrimSpace(event.RelatedPlayerKey)
 	event.PitchSequence = strings.TrimSpace(event.PitchSequence)
 	event.RBIPlayer = strings.TrimSpace(event.RBIPlayer)
+	event.RBIPlayerKey = strings.TrimSpace(event.RBIPlayerKey)
 	event.Description = strings.TrimSpace(event.Description)
 	if event.Value == 0 {
 		event.Value = 1
@@ -363,8 +423,8 @@ func prepareGameEvent(event *GameEvent, gameID int64) error {
 	// 再补充各事件类型不可缺少的上下文字段和默认跑垒原因。
 	switch event.EventKind {
 	case EventKindPlateResult:
-		if event.RelatedPlayer == "" {
-			return errors.New("--related-player cannot be empty for plate_result")
+		if event.RelatedPlayer == "" && event.RelatedPlayerKey == "" {
+			return errors.New("one of --related-player or --related-player-key is required for plate_result")
 		}
 		if event.PitchSequence == "" {
 			return errors.New("--pitch-sequence cannot be empty for plate_result")

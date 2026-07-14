@@ -136,6 +136,9 @@ export function buildVerificationRequests(
         },
       ];
     }
+    case "game analysis generate-batch": {
+      return [{ args: ["game", "analysis", "list"], expected: {} }];
+    }
     case "lineup write": {
       if (data?.valid === false) return [];
       const id = requiredPrimitive(data, "id");

@@ -76,14 +76,26 @@ class PrepareAthletics2025Test(unittest.TestCase):
             source = Path(directory) / "source.zip"
             self.make_source(source)
             sql, counts = MODULE.generate_sql(source)
-        self.assertEqual(counts, {"games": 1, "players": 1, "lineups": 2, "events": 1})
+        self.assertEqual(counts, {"games": 1, "players": 2, "lineups": 2, "events": 1})
         self.assertIn("CREATE TEMP TABLE _athletics_seed_guard", sql)
-        self.assertIn("UPDATE teams SET name='Sacramento Athletics'", sql)
+        self.assertIn("INSERT INTO teams(name,created_at,updated_at) VALUES('Sacramento Athletics'", sql)
+        self.assertIn("INSERT INTO app_config", sql)
         self.assertIn("INSERT INTO players", sql)
+        self.assertIn("player_key", sql)
+        self.assertNotIn("'ath001'", sql)
+        self.assertNotIn("'sea001'", sql)
         self.assertIn("'2025-03-27','19:05','Seattle Mariners'", sql)
         self.assertIn("INSERT INTO game_events", sql)
         self.assertNotIn("game_analyses", sql)
         self.assertTrue(sql.endswith("COMMIT;\n"))
+
+    def test_normalizes_three_and_four_digit_times(self) -> None:
+        self.assertEqual(MODULE.time_text("638"), "06:38")
+        self.assertEqual(MODULE.time_text("105"), "01:05")
+        self.assertEqual(MODULE.time_text("1905"), "19:05")
+        self.assertEqual(MODULE.time_text("06:38"), "06:38")
+        with self.assertRaisesRegex(ValueError, "invalid start time"):
+            MODULE.time_text("2460")
 
     def test_rejects_unknown_referenced_player(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -93,18 +105,16 @@ class PrepareAthletics2025Test(unittest.TestCase):
                 MODULE.generate_sql(source)
 
     @unittest.skipUnless(os.environ.get("TEAMOPS_BINARY"), "TEAMOPS_BINARY is not set")
-    def test_seed_applies_to_fresh_teamops_schema(self) -> None:
+    def test_initialization_sql_applies_directly_to_new_database(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source.zip"
             database = root / "teamops.db"
             self.make_source(source)
-            seed, counts = MODULE.generate_sql(source)
-            subprocess.run(
-                [os.environ["TEAMOPS_BINARY"], "--db", str(database), "team", "list"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
+            schema, version = MODULE.export_schema_statements(Path(os.environ["TEAMOPS_BINARY"]))
+            seed, counts = MODULE.generate_sql(source, schema, version)
+            self.assertIn("CREATE TABLE players", seed)
+            self.assertIn("CREATE TABLE teams", seed)
             connection = sqlite3.connect(database)
             try:
                 connection.executescript(seed)

@@ -14,9 +14,9 @@ func (s *Store) CreateRecommendation(r drill.Recommendation) (int64, error) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 	updatedAt := nowTimestamp()
 	result, err := s.db.Exec(`
-INSERT INTO drill_recommendations (name, url, reason, type, summary, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-`, r.Name, r.URL, r.Reason, int(r.Type), r.Summary, createdAt, updatedAt)
+INSERT INTO drill_recommendations (player_id, name, url, reason, type, summary, created_at, updated_at)
+VALUES ((SELECT p.id FROM players p JOIN app_config c ON c.own_team_id=p.team_id WHERE c.id=1 AND p.name=?), ?, ?, ?, ?, ?, ?, ?)
+`, r.Name, r.Name, r.URL, r.Reason, int(r.Type), r.Summary, createdAt, updatedAt)
 	if err != nil {
 		return 0, err
 	}
@@ -26,7 +26,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 // ListRecommendations 按可选球员、类型和审核状态组合查询推荐。
 func (s *Store) ListRecommendations(filter drill.ListFilter) ([]drill.Recommendation, error) {
 	// 仅拼接带参数的筛选条件，避免为每种组合维护独立 SQL。
-	query := `SELECT id, name, url, reason, type, summary, is_approved, reviewed_by, review_summary, review_note, reviewed_at, created_at FROM drill_recommendations`
+	query := `SELECT id, COALESCE(player_id,0), name, url, reason, type, summary, is_approved, reviewed_by, review_summary, review_note, reviewed_at, created_at, updated_at FROM drill_recommendations`
 	var conditions []string
 	var args []any
 	if filter.ID != nil {
@@ -79,7 +79,7 @@ func (s *Store) ListRecommendations(filter drill.ListFilter) ([]drill.Recommenda
 // GetRecommendation 按编号读取一条训练推荐。
 func (s *Store) GetRecommendation(id int64) (drill.Recommendation, error) {
 	row := s.db.QueryRow(`
-SELECT id, name, url, reason, type, summary, is_approved, reviewed_by, review_summary, review_note, reviewed_at, created_at
+SELECT id, COALESCE(player_id,0), name, url, reason, type, summary, is_approved, reviewed_by, review_summary, review_note, reviewed_at, created_at, updated_at
 FROM drill_recommendations
 WHERE id = ?
 `, id)
@@ -128,6 +128,7 @@ func scanRecommendation(scanner recommendationScanner) (drill.Recommendation, er
 	var reviewedAt sql.NullString
 	if err := scanner.Scan(
 		&r.ID,
+		&r.PlayerID,
 		&r.Name,
 		&r.URL,
 		&r.Reason,
@@ -139,6 +140,7 @@ func scanRecommendation(scanner recommendationScanner) (drill.Recommendation, er
 		&reviewNote,
 		&reviewedAt,
 		&r.CreatedAt,
+		&r.UpdatedAt,
 	); err != nil {
 		return drill.Recommendation{}, err
 	}

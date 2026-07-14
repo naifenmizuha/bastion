@@ -81,6 +81,46 @@ func TestTeamInitializationAndOpponentPlayerIsolation(t *testing.T) {
 	}
 }
 
+func TestSchemaInitAndTeamListDoNotCreateBusinessTeam(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "schema.db")
+	out, err := runRawCommandInput(dbPath, "", "schema", "init")
+	if err != nil {
+		t.Fatalf("schema init: %v %s", err, out)
+	}
+	data := assertJSONOK(t, out)
+	if data["schema"] != "ready" {
+		t.Fatalf("unexpected schema init output: %#v", data)
+	}
+
+	out, err = runRawCommandInput(dbPath, "", "team", "list")
+	if err != nil {
+		t.Fatalf("team list: %v %s", err, out)
+	}
+	data = assertJSONOK(t, out)
+	teams, ok := data["teams"].([]any)
+	if !ok || len(teams) != 0 {
+		t.Fatalf("expected an empty business team list, got %#v", data)
+	}
+
+	out, err = runRawCommandInput(dbPath, `{"own_team":"堡垒队"}`, "team", "init", "--input", "-")
+	if err != nil {
+		t.Fatalf("team init after schema init: %v %s", err, out)
+	}
+	out, err = runRawCommandInput(dbPath, "", "team", "list")
+	if err != nil {
+		t.Fatalf("team list after team init: %v %s", err, out)
+	}
+	data = assertJSONOK(t, out)
+	teams, ok = data["teams"].([]any)
+	if !ok || len(teams) != 1 {
+		t.Fatalf("expected the initialized own team, got %#v", data)
+	}
+	team, ok := teams[0].(map[string]any)
+	if !ok || team["name"] != "堡垒队" {
+		t.Fatalf("expected the initialized own team, got %#v", data)
+	}
+}
+
 func TestJSONInputErrorsAndOldFlags(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "bastion.db")
 
@@ -590,7 +630,7 @@ func TestContractReturnsEveryStructuredInputCommandWithoutDatabase(t *testing.T)
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode contract output: %v\n%s", err, stdout.String())
 	}
-	if !envelope.Ok || len(envelope.Data.Commands) != 16 {
+	if !envelope.Ok || len(envelope.Data.Commands) != 17 {
 		t.Fatalf("unexpected contracts: %#v", envelope)
 	}
 	for _, contract := range envelope.Data.Commands {

@@ -447,6 +447,7 @@ func applyFielding(stats *PlayerFieldingStats, result FieldingResult, value int)
 	case FieldingResultPassedBall:
 		stats.PassedBalls += value
 	case FieldingResultOutfieldAssist:
+		stats.Assists += value
 		stats.OutfieldAssists += value
 	}
 }
