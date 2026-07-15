@@ -1,0 +1,74 @@
+schema_version = 3
+name = "Athletics 2025 跨会话长期记忆评测"
+description = "验证 Runtime 重建后不继承聊天历史，但能够检索前一会话保存的有依据结论。"
+runs = 1
+timeout_seconds = 180
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[scoring]
+pass_score = 80
+
+[[cases]]
+id = "remember-season-size"
+title = "跨会话记住赛季比赛数"
+tags = ["read", "memory", "cross-session"]
+write_permission = "allow"
+
+[[cases.sessions]]
+id = "establish"
+
+[[cases.sessions.turns]]
+id = "save-season-size"
+prompt = "请查询我们这个赛季一共有多少场比赛，并把这个有数据库依据的结论保存到长期记忆，供之后的新会话使用。"
+
+[[cases.sessions.turns.expectations]]
+id = "queries-games"
+title = "查询比赛记录"
+type = "tool_called"
+points = 15
+tool = "teamops"
+status = "succeeded"
+command_prefix = ["game", "list"]
+
+[[cases.sessions.turns.expectations]]
+id = "saves-memory"
+title = "保存派生记忆"
+type = "tool_called"
+points = 20
+tool = "derived_memory"
+status = "succeeded"
+arguments = { action = "save" }
+
+[[cases.sessions]]
+id = "recall"
+
+[[cases.sessions.turns]]
+id = "recall-season-size"
+prompt = "这是一个新会话。不要重新查询比赛数据库：我们这个赛季一共有多少场比赛？请说明这个数字来自哪里。"
+
+[[cases.sessions.turns.expectations]]
+id = "searches-memory"
+title = "检索派生记忆"
+type = "tool_called"
+points = 15
+tool = "derived_memory"
+status = "succeeded"
+arguments = { action = "search" }
+
+[[cases.sessions.turns.expectations]]
+id = "recalls-162"
+title = "正确召回 162 场"
+type = "response_regex"
+points = 20
+pattern = "162\\s*场?"
+flags = "u"

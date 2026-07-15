@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Markdown } from "@earendil-works/pi-tui";
+import type { ThinkingLevel } from "./eval/types.ts";
 import {
   AuthStorage,
   type AgentSessionRuntime,
@@ -68,10 +69,17 @@ const bastionHeaderExtension: ExtensionFactory = (pi) => {
 
 export interface BastionRuntimeHostOptions {
   databasePath?: string;
+  executablePath?: string;
   agentDir?: string;
   configAgentDir?: string;
+  /** Load user-configured Pi packages. Evaluations disable these and use Runtime resources only. */
+  loadConfiguredPackages?: boolean;
   confirmWrite?: ConfirmWrite;
   principal?: PrincipalContext;
+  /** Optional per-session model override. It is not persisted to user settings. */
+  model?: { provider: string; id: string };
+  /** Optional per-session thinking level. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface BastionRuntimeHost {
@@ -163,13 +171,22 @@ export async function createBastionRuntimeHost(
   mkdirSync(agentDir, { recursive: true });
   const authStorage = AuthStorage.create(join(configAgentDir, "auth.json"));
   const settingsManager = SettingsManager.create(repoRoot, configAgentDir);
+  if (options.loadConfiguredPackages === false) {
+    settingsManager.applyOverrides({ packages: [] });
+  }
   const modelRegistry = ModelRegistry.create(
     authStorage,
     join(configAgentDir, "models.json"),
   );
+  const selectedModel = options.model
+    ? modelRegistry.find(options.model.provider, options.model.id)
+    : undefined;
+  if (options.model && !selectedModel) {
+    throw new Error(`model does not exist: ${options.model.provider}/${options.model.id}`);
+  }
 
   const cliOptions = {
-    executablePath: join(repoRoot, "out", "teamops"),
+    executablePath: options.executablePath ?? join(repoRoot, "out", "teamops"),
     databasePath,
     timeoutMs,
   };
@@ -246,6 +263,8 @@ export async function createBastionRuntimeHost(
         services,
         sessionManager,
         sessionStartEvent,
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
         tools: [
           "read",
           TEAMOPS_TOOL_NAME,

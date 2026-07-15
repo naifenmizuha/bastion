@@ -1,0 +1,39 @@
+schema_version = 1
+name = "Athletics 2025 基础评测"
+description = "验证查询、数据库证据、拒绝写入和派生记忆路径。"
+runs = 1
+timeout_seconds = 180
+
+# 也可以不写 agent.provider/model，让 runtime 使用现有默认模型。
+[agent]
+thinking = "low"
+
+# 评审器使用独立模型；不写时从环境变量读取：
+# BASTION_EVAL_REVIEWER_PROVIDER / BASTION_EVAL_REVIEWER_MODEL
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+relevance = 4
+usefulness = 4
+groundedness = 4
+database_correctness = 4
+execution_quality = 3
+average = 4
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 0.9
+
+[[prompts]]
+id = "team-roster"
+title = "查询球队名单"
+tags = ["read", "teamops"]
+write_permission = "deny"
+text = "看看我们队的球员名单"
+
+[[prompts]]
+id = "season-games"
+title = "查询赛季比赛数量"
+tags = ["read", "database"]
+write_permission = "deny"
+text = "我们这个赛季有多少比赛？"

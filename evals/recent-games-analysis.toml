@@ -1,0 +1,154 @@
+schema_version = 2
+name = "最近比赛查询与进攻分析评测"
+description = "验证最近比赛事实查询、最近五场逐场读取、进攻分析质量和派生记忆保存。"
+runs = 1
+timeout_seconds = 180
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[scoring]
+pass_score = 80
+
+
+# 用例一：简单查询最近一场比赛的对手。
+[[cases]]
+id = "latest-game-opponent"
+title = "查询最近一场比赛的对手"
+tags = ["read", "database", "game"]
+write_permission = "deny"
+
+[[cases.turns]]
+id = "ask-latest-opponent"
+prompt = "我们最近一次比赛打的是谁？"
+
+[[cases.turns.expectations]]
+id = "queries-latest-game"
+title = "只查询最近一场比赛"
+type = "tool_called"
+points = 30
+tool = "teamops"
+status = "succeeded"
+command = ["game", "list", "--limit", "1"]
+
+[[cases.turns.expectations]]
+id = "answers-latest-opponent"
+title = "回答数据库中的最近对手"
+type = "response_regex"
+points = 40
+pattern = "(Kansas City Royals|堪萨斯城皇家队?)"
+flags = "iu"
+
+
+
+# 用例二：分析最近五场进攻并保存派生记忆。
+[[cases]]
+id = "recent-five-offense-analysis"
+title = "分析最近五场进攻问题并保存结论"
+tags = ["read", "analysis", "memory", "multi-game"]
+write_permission = "allow"
+
+[[cases.turns]]
+id = "analyze-and-remember"
+prompt = "我们最近5场比赛怎么打这么烂？进攻的问题出在哪里？将结论记下来。"
+
+[[cases.turns.expectations]]
+id = "lists-recent-five"
+title = "查询最近五场比赛"
+type = "tool_called"
+points = 10
+tool = "teamops"
+status = "succeeded"
+command = ["game", "list", "--limit", "5"]
+
+[[cases.turns.expectations]]
+id = "reads-game-162"
+title = "读取比赛 162"
+type = "tool_called"
+points = 5
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "162"]
+
+[[cases.turns.expectations]]
+id = "reads-game-161"
+title = "读取比赛 161"
+type = "tool_called"
+points = 5
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "161"]
+
+[[cases.turns.expectations]]
+id = "reads-game-160"
+title = "读取比赛 160"
+type = "tool_called"
+points = 5
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "160"]
+
+[[cases.turns.expectations]]
+id = "reads-game-159"
+title = "读取比赛 159"
+type = "tool_called"
+points = 5
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "159"]
+
+[[cases.turns.expectations]]
+id = "reads-game-158"
+title = "读取比赛 158"
+type = "tool_called"
+points = 5
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "158"]
+
+[[cases.turns.expectations]]
+id = "saves-derived-memory"
+title = "保存进攻分析到派生记忆"
+type = "tool_called"
+points = 10
+tool = "derived_memory"
+status = "succeeded"
+arguments = { action = "save" }
+
+[[cases.expectations]]
+id = "memory-is-persisted"
+title = "派生记忆成功落盘"
+type = "sql"
+points = 10
+database = "derived-memory"
+query = "SELECT COUNT(*) AS count FROM derived_memories WHERE status = 'fresh'"
+expected_rows = [{ count = 1 }]
+
+[[cases.expectations]]
+id = "offense-analysis-quality"
+title = "最近五场进攻分析质量"
+type = "rubric"
+points = 15
+criteria = "基于最近五场实际比赛和事件分析进攻问题，区分进攻表现与比赛失利的其他原因，形成有证据、可复用且适合保存的结论。"
+anchors = { "1" = "没有基于五场数据，泛泛归因、编造事实，或把所有失利简单归咎于进攻", "3" = "读取并概括了五场比赛，指出部分进攻现象，但跨场证据、因果边界或建议不够清楚", "5" = "准确综合五场比分与进攻事件，用多个跨场证据识别稳定问题，区分进攻与失分因素，并给出具体、克制、可复用的结论" }
+required_facts = [
+  "最近五场比赛是 ID 162、161、160、159、158",
+  "最近五场战绩为 2 胜 3 负",
+  "五场共得到 19 分",
+  "分析引用至少两个来自比赛记录或事件的跨场进攻证据",
+  "说明部分失利不能只归因于进攻"
+]
+forbidden = [
+  "编造数据库中不存在的球员、事件或统计",
+  "只凭最终比分断言具体进攻技术问题",
+  "把 9 个失分和 11 个失分的比赛全部归咎于进攻"
+]
+reference = "理想回答应先说明五场样本与 2 胜 3 负、19 得分，再结合逐场事件识别跨场进攻模式；对证据不足的技术归因明确保留意见，最后说明已将有依赖来源的结论保存到派生记忆。"
