@@ -4,17 +4,18 @@ import type {
   DerivedMemory,
   DerivedMemoryDependency,
   DerivedMemoryInvalidation,
+  DerivedMemoryListScope,
   DerivedMemorySharingEvent,
   DerivedMemoryVisibility,
   DerivedMemoryWithDependencies,
   DomainChangeEvent,
   PrincipalContext,
+  ReplaceDerivedMemoryInput,
   SaveDerivedMemoryInput,
-  SearchDerivedMemoryInput,
-  SuccessfulReadObservation,
+  VerifiedTeamOpsEvidence,
 } from "./types.ts";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 interface MemoryRow {
   id: string;
@@ -22,17 +23,22 @@ interface MemoryRow {
   team_id: string;
   owner_user_id: string;
   visibility: DerivedMemoryVisibility;
+  title: string;
+  summary: string;
   kind: string;
   subject_keys: string;
   topics: string;
   conclusion: string;
   limitations: string;
+  rebuild_instruction: string;
   status: "fresh" | "stale";
   created_at: number;
   updated_at: number;
   published_at: number | null;
   invalidated_at: number | null;
   invalidated_by_event_id: string | null;
+  supersedes_id: string | null;
+  superseded_by_id: string | null;
 }
 
 interface DependencyRow {
@@ -59,11 +65,9 @@ function toMemory(row: MemoryRow): DerivedMemory {
     teamId: row.team_id,
     ownerUserId: row.owner_user_id,
     visibility: row.visibility,
-    kind: row.kind,
-    subjectKeys: parseStringArray(row.subject_keys),
-    topics: parseStringArray(row.topics),
-    conclusion: row.conclusion,
-    limitations: parseStringArray(row.limitations),
+    title: row.title,
+    content: row.conclusion,
+    rebuildInstruction: row.rebuild_instruction,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -74,21 +78,11 @@ function toMemory(row: MemoryRow): DerivedMemory {
     ...(row.invalidated_by_event_id !== null
       ? { invalidatedByEventId: row.invalidated_by_event_id }
       : {}),
+    ...(row.supersedes_id !== null ? { supersedesId: row.supersedes_id } : {}),
+    ...(row.superseded_by_id !== null
+      ? { supersededById: row.superseded_by_id }
+      : {}),
   };
-}
-
-function matchesSearch(memory: DerivedMemory, input: SearchDerivedMemoryInput): boolean {
-  const query = input.query?.trim().toLocaleLowerCase();
-  return (!input.kind || memory.kind === input.kind) &&
-    (!input.subject || memory.subjectKeys.includes(input.subject)) &&
-    (!input.topic || memory.topics.includes(input.topic)) &&
-    (!query || [
-      memory.kind,
-      memory.conclusion,
-      ...memory.subjectKeys,
-      ...memory.topics,
-      ...memory.limitations,
-    ].join("\n").toLocaleLowerCase().includes(query));
 }
 
 export class DerivedMemoryStore {
@@ -118,23 +112,28 @@ export class DerivedMemoryStore {
         team_id TEXT NOT NULL,
         owner_user_id TEXT NOT NULL,
         visibility TEXT NOT NULL CHECK (visibility IN ('private', 'staff', 'team')),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
         kind TEXT NOT NULL,
         subject_keys TEXT NOT NULL,
         topics TEXT NOT NULL,
         conclusion TEXT NOT NULL,
         limitations TEXT NOT NULL,
+        rebuild_instruction TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('fresh', 'stale')),
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         published_at INTEGER,
         invalidated_at INTEGER,
-        invalidated_by_event_id TEXT
+        invalidated_by_event_id TEXT,
+        supersedes_id TEXT UNIQUE REFERENCES derived_memories(id) ON DELETE SET NULL,
+        superseded_by_id TEXT UNIQUE REFERENCES derived_memories(id) ON DELETE SET NULL
       );
-      CREATE INDEX derived_memory_private_search_idx
+      CREATE INDEX derived_memory_private_list_idx
         ON derived_memories(authority_id, team_id, owner_user_id, visibility, status, updated_at DESC);
-      CREATE INDEX derived_memory_staff_search_idx
+      CREATE INDEX derived_memory_staff_list_idx
         ON derived_memories(authority_id, team_id, visibility, status, updated_at DESC);
-      CREATE INDEX derived_memory_team_search_idx
+      CREATE INDEX derived_memory_team_list_idx
         ON derived_memories(authority_id, team_id, visibility, status, updated_at DESC);
       CREATE TABLE derived_memory_dependencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,54 +188,13 @@ export class DerivedMemoryStore {
   save(
     principal: PrincipalContext,
     input: SaveDerivedMemoryInput,
-    dependencies: readonly SuccessfulReadObservation[],
+    dependencies: readonly VerifiedTeamOpsEvidence[],
     now = Date.now(),
   ): DerivedMemoryWithDependencies {
     const id = `dmem_${randomUUID()}`;
     this.#db.exec("BEGIN");
     try {
-      this.#db.prepare(`
-        INSERT INTO derived_memories
-          (id, authority_id, team_id, owner_user_id, visibility, kind,
-           subject_keys, topics, conclusion, limitations, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'private', ?, ?, ?, ?, ?, 'fresh', ?, ?)
-      `).run(
-        id,
-        principal.authorityId,
-        principal.teamId,
-        principal.userId,
-        input.kind,
-        JSON.stringify(input.subjectKeys),
-        JSON.stringify(input.topics),
-        input.conclusion,
-        JSON.stringify(input.limitations),
-        now,
-        now,
-      );
-      const insertDependency = this.#db.prepare(`
-        INSERT INTO derived_memory_dependencies
-          (memory_id, command_json, input_json, command_hash, observed_at,
-           source_snapshot_json, source_snapshot_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertTopic = this.#db.prepare(`
-        INSERT INTO derived_memory_dependency_topics
-          (dependency_id, memory_id, topic) VALUES (?, ?, ?)
-      `);
-      for (const dependency of dependencies) {
-        const result = insertDependency.run(
-          id,
-          JSON.stringify(dependency.command),
-          dependency.input === undefined ? null : JSON.stringify(dependency.input),
-          dependency.normalizedCommandHash,
-          dependency.observedAt,
-          JSON.stringify(dependency.sourceSnapshot.sources),
-          dependency.sourceSnapshot.hash,
-        );
-        for (const topic of dependency.invalidationTopics) {
-          insertTopic.run(Number(result.lastInsertRowid), id, topic);
-        }
-      }
+      this.#insert(id, principal, input, dependencies, now);
       this.#db.exec("COMMIT");
     } catch (error) {
       this.#db.exec("ROLLBACK");
@@ -245,45 +203,220 @@ export class DerivedMemoryStore {
     return this.readPrivate(id, principal)!;
   }
 
-  #search(sql: string, values: readonly any[], input: SearchDerivedMemoryInput): DerivedMemory[] {
-    const rows = this.#db.prepare(sql).all(...values) as unknown as MemoryRow[];
-    return rows.map(toMemory).filter((memory) => matchesSearch(memory, input));
+  replace(
+    principal: PrincipalContext,
+    input: ReplaceDerivedMemoryInput,
+    dependencies: readonly VerifiedTeamOpsEvidence[],
+    now = Date.now(),
+  ):
+    | { ok: true; memory: DerivedMemoryWithDependencies }
+    | { ok: false; code: "NOT_FOUND" | "NOT_STALE" | "ALREADY_SUPERSEDED"; successorId?: string } {
+    this.#db.exec("BEGIN");
+    try {
+      const previous = this.#db.prepare(`
+        SELECT status, superseded_by_id
+        FROM derived_memories
+        WHERE id = ? AND authority_id = ? AND team_id = ? AND owner_user_id = ?
+      `).get(
+        input.id,
+        principal.authorityId,
+        principal.teamId,
+        principal.userId,
+      ) as { status: "fresh" | "stale"; superseded_by_id: string | null } | undefined;
+      if (!previous) {
+        this.#db.exec("ROLLBACK");
+        return { ok: false, code: "NOT_FOUND" };
+      }
+      if (previous.status !== "stale") {
+        this.#db.exec("ROLLBACK");
+        return { ok: false, code: "NOT_STALE" };
+      }
+      if (previous.superseded_by_id) {
+        this.#db.exec("ROLLBACK");
+        return {
+          ok: false,
+          code: "ALREADY_SUPERSEDED",
+          successorId: previous.superseded_by_id,
+        };
+      }
+
+      const id = `dmem_${randomUUID()}`;
+      this.#insert(id, principal, input, dependencies, now, input.id);
+      const linked = this.#db.prepare(`
+        UPDATE derived_memories
+        SET superseded_by_id = ?, updated_at = ?
+        WHERE id = ? AND authority_id = ? AND team_id = ? AND owner_user_id = ?
+          AND status = 'stale' AND superseded_by_id IS NULL
+      `).run(
+        id,
+        now,
+        input.id,
+        principal.authorityId,
+        principal.teamId,
+        principal.userId,
+      );
+      if (Number(linked.changes) === 0) {
+        this.#db.exec("ROLLBACK");
+        return { ok: false, code: "ALREADY_SUPERSEDED" };
+      }
+      this.#db.exec("COMMIT");
+      return { ok: true, memory: this.readPrivate(id, principal)! };
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
-  searchPrivate(principal: PrincipalContext, input: SearchDerivedMemoryInput): DerivedMemory[] {
-    return this.#search(`
+  #insert(
+    id: string,
+    principal: PrincipalContext,
+    input: SaveDerivedMemoryInput,
+    dependencies: readonly VerifiedTeamOpsEvidence[],
+    now: number,
+    supersedesId?: string,
+  ): void {
+    this.#db.prepare(`
+      INSERT INTO derived_memories
+        (id, authority_id, team_id, owner_user_id, visibility, title, summary, kind,
+         subject_keys, topics, conclusion, limitations, rebuild_instruction,
+         status, created_at, updated_at, supersedes_id)
+      VALUES (?, ?, ?, ?, 'private', ?, ?, ?, ?, ?, ?, ?, ?, 'fresh', ?, ?, ?)
+    `).run(
+      id,
+      principal.authorityId,
+      principal.teamId,
+      principal.userId,
+      input.title,
+      input.title,
+      "derived-memory",
+      "[]",
+      "[]",
+      input.content,
+      "[]",
+      input.rebuildInstruction,
+      now,
+      now,
+      supersedesId ?? null,
+    );
+    const insertDependency = this.#db.prepare(`
+      INSERT INTO derived_memory_dependencies
+        (memory_id, command_json, input_json, command_hash, observed_at,
+         source_snapshot_json, source_snapshot_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertTopic = this.#db.prepare(`
+      INSERT INTO derived_memory_dependency_topics
+        (dependency_id, memory_id, topic) VALUES (?, ?, ?)
+    `);
+    for (const dependency of dependencies) {
+      const result = insertDependency.run(
+        id,
+        JSON.stringify(dependency.command),
+        dependency.input === undefined ? null : JSON.stringify(dependency.input),
+        dependency.normalizedCommandHash,
+        dependency.observedAt,
+        JSON.stringify(dependency.sourceSnapshot.sources),
+        dependency.sourceSnapshot.hash,
+      );
+      for (const topic of dependency.invalidationTopics) {
+        insertTopic.run(Number(result.lastInsertRowid), id, topic);
+      }
+    }
+  }
+
+  #list(sql: string, values: readonly any[]): DerivedMemory[] {
+    const rows = this.#db.prepare(sql).all(...values) as unknown as MemoryRow[];
+    return rows.map(toMemory);
+  }
+
+  listPrivate(principal: PrincipalContext): DerivedMemory[] {
+    return this.#list(`
       SELECT * FROM derived_memories
       WHERE authority_id = ? AND team_id = ? AND owner_user_id = ?
-        AND visibility = 'private' AND (? = 1 OR status = 'fresh')
+        AND visibility = 'private' AND superseded_by_id IS NULL
       ORDER BY updated_at DESC, id ASC
-    `, [principal.authorityId, principal.teamId, principal.userId, input.includeStale ? 1 : 0], input);
+    `, [principal.authorityId, principal.teamId, principal.userId]);
   }
 
-  searchStaff(principal: PrincipalContext, input: SearchDerivedMemoryInput): DerivedMemory[] {
+  listStaff(principal: PrincipalContext): DerivedMemory[] {
     if (principal.role === "player") return [];
-    return this.#search(`
+    return this.#list(`
       SELECT * FROM derived_memories
       WHERE authority_id = ? AND team_id = ? AND visibility = 'staff'
-        AND (? = 1 OR status = 'fresh')
+        AND superseded_by_id IS NULL
       ORDER BY updated_at DESC, id ASC
-    `, [principal.authorityId, principal.teamId, input.includeStale ? 1 : 0], input);
+    `, [principal.authorityId, principal.teamId]);
   }
 
-  searchTeam(principal: PrincipalContext, input: SearchDerivedMemoryInput): DerivedMemory[] {
-    return this.#search(`
+  listTeam(principal: PrincipalContext): DerivedMemory[] {
+    return this.#list(`
       SELECT * FROM derived_memories
       WHERE authority_id = ? AND team_id = ? AND visibility = 'team'
-        AND (? = 1 OR status = 'fresh')
+        AND superseded_by_id IS NULL
       ORDER BY updated_at DESC, id ASC
-    `, [principal.authorityId, principal.teamId, input.includeStale ? 1 : 0], input);
+    `, [principal.authorityId, principal.teamId]);
   }
 
-  freshMemories(authorityId: string): DerivedMemoryWithDependencies[] {
+  listAccessible(
+    principal: PrincipalContext,
+    scope: DerivedMemoryListScope = "all",
+  ): DerivedMemory[] {
+    const scopes: DerivedMemoryVisibility[] = scope === "all"
+      ? principal.role === "player"
+        ? ["private", "team"]
+        : ["private", "staff", "team"]
+      : [scope];
+    const memories = scopes.flatMap((candidate) =>
+      candidate === "private"
+        ? this.listPrivate(principal)
+        : candidate === "staff"
+        ? this.listStaff(principal)
+        : this.listTeam(principal)
+    );
+    return [...new Map(memories.map((memory) => [memory.id, memory])).values()]
+      .sort((left, right) =>
+        right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)
+      );
+  }
+
+  listAccessiblePage(
+    principal: PrincipalContext,
+    scope: DerivedMemoryListScope = "all",
+    limit = 20,
+    offset = 0,
+  ): {
+    memories: DerivedMemory[];
+    total: number;
+    nextOffset?: number;
+  } {
+    const accessible = this.listAccessible(principal, scope);
+    const memories = accessible.slice(offset, offset + limit);
+    const nextOffset = offset + memories.length < accessible.length
+      ? offset + memories.length
+      : undefined;
+    return {
+      memories,
+      total: accessible.length,
+      ...(nextOffset !== undefined ? { nextOffset } : {}),
+    };
+  }
+
+  freshMemoriesForTopics(
+    authorityId: string,
+    topics: readonly string[],
+  ): DerivedMemoryWithDependencies[] {
+    if (topics.length === 0) return [];
+    const placeholders = topics.map(() => "?").join(", ");
     const rows = this.#db.prepare(`
-      SELECT id FROM derived_memories
-      WHERE authority_id = ? AND status = 'fresh'
-      ORDER BY updated_at DESC, id ASC
-    `).all(authorityId) as Array<{ id: string }>;
+      SELECT DISTINCT memories.id, memories.updated_at
+      FROM derived_memories memories
+      JOIN derived_memory_dependency_topics dependency_topics
+        ON dependency_topics.memory_id = memories.id
+      WHERE memories.authority_id = ? AND memories.status = 'fresh'
+        AND memories.superseded_by_id IS NULL
+        AND dependency_topics.topic IN (${placeholders})
+      ORDER BY memories.updated_at DESC, memories.id ASC
+    `).all(authorityId, ...topics) as Array<{ id: string; updated_at: number }>;
     return rows.map(({ id }) => this.#read(id, "authority_id = ?", [authorityId])!);
   }
 
@@ -500,9 +633,11 @@ export class DerivedMemoryStore {
     authorityId: string,
     memoryId: string,
     sourceKeys: readonly string[],
-    now = Date.now(),
+    context: { event?: DomainChangeEvent; now?: number } = {},
   ): boolean {
-    const eventId = `freshness:${randomUUID()}`;
+    const eventId = context.event?.id ?? `freshness:${randomUUID()}`;
+    const topics = context.event?.topics ?? ["source_freshness"];
+    const now = context.event?.occurredAt ?? context.now ?? Date.now();
     this.#db.exec("BEGIN");
     try {
       const changed = this.#db.prepare(`
@@ -518,7 +653,7 @@ export class DerivedMemoryStore {
         `).run(
           memoryId,
           eventId,
-          JSON.stringify(["source_freshness"]),
+          JSON.stringify(topics),
           now,
           JSON.stringify(sourceKeys),
         );

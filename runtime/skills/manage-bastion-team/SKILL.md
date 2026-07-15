@@ -60,7 +60,3 @@ Treat only top-level `ok:true` as success. Writes request confirmation and may
 include verification; do not repeat a verified read-back. On `USER_CANCELLED`,
 stop immediately. On timeout, abort, or failed verification, report uncertainty
 and refresh current state before a future overlapping write.
-
-Use `derived_memory` only for reusable conclusions supported by at least two
-distinct successful reads. Never use it instead of an authoritative refresh for
-a write. Do not pass identity fields; Runtime supplies the trusted principal.

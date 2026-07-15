@@ -38,7 +38,8 @@ import { createContextProjectionExtension } from "./context-projection/extension
 import { createDeveloperMode } from "./developer-mode/extension.ts";
 import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
-import { CliObservationLedger } from "./derived-memory/ledger.ts";
+import { DerivedMemoryEvidenceRegistry } from "./derived-memory/evidence-registry.ts";
+import { publishTeamOpsChange } from "./derived-memory/teamops-change-events.ts";
 import { DerivedMemoryStore } from "./derived-memory/store.ts";
 import { SqliteFreshnessProvider } from "./derived-memory/freshness.ts";
 import type {
@@ -194,17 +195,23 @@ export async function createBastionRuntimeHost(
     sessionManager,
     sessionStartEvent,
   }) => {
-    const observationLedger = new CliObservationLedger();
+    const evidenceRegistry = new DerivedMemoryEvidenceRegistry();
     const teamOpsExtension = createTeamOpsExtension(cliOptions, {
       confirmWrite: options.confirmWrite,
       freshness,
       onResult: ({ toolCallId, params, details }) => {
-        observationLedger.record(toolCallId, params, details, changeEvents);
+        evidenceRegistry.registerTeamOpsRead(params, details);
+        publishTeamOpsChange(
+          toolCallId,
+          params,
+          details,
+          changeEvents,
+        );
       },
     });
     const derivedMemoryExtension = createDerivedMemoryExtension({
       store: derivedMemoryStore,
-      ledger: observationLedger,
+      evidenceRegistry,
       changeEvents,
       freshness,
       principal,

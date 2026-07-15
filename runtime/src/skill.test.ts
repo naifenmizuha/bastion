@@ -11,6 +11,7 @@ const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(runtimeRoot, "..");
 const teamopsExecutable = join(repoRoot, "out", "teamops");
 const manageSkillDir = join(runtimeRoot, "skills", "manage-bastion-team");
+const derivedMemorySkillDir = join(runtimeRoot, "skills", "manage-derived-memory");
 const knowledgeSkillDir = join(runtimeRoot, "skills", "knowledge-base-ingest");
 
 const cliReferences = [
@@ -59,6 +60,15 @@ describe("manage-bastion-team skill", () => {
     assert.doesNotMatch(content, /Official baseball rules|chunk_preview|SiliconFlow/);
     assert.match(content, /Never include `--db`, `--format`, or\s+`--input`/);
     assert.match(content, /do not repeat a verified read-back/);
+    assert.doesNotMatch(
+      content,
+      /derived_memory|derived-memory|manage-derived-memory|effectiveStatus|rebuildInstruction|nextOffset/,
+    );
+    const metadata = await readFile(
+      join(manageSkillDir, "agents", "openai.yaml"),
+      "utf8",
+    );
+    assert.doesNotMatch(metadata, /derived.memory|manage-derived-memory/i);
     assert.equal(content.match(/`team list`/g)?.length, 1);
 
     const links = [...content.matchAll(/\]\((references\/[^)]+)\)/g)].map(
@@ -176,6 +186,54 @@ describe("manage-bastion-team skill", () => {
     assert.match(gameRecording, /`game analysis generate`/);
     assert.match(gameRecording, /`game analysis read`/);
     assert.match(gameRecording, /write confirmation/);
+  });
+});
+
+describe("manage-derived-memory skill", () => {
+  it("loads as the reusable conclusion lifecycle skill", async () => {
+    const result = loadSkillsFromDir({ dir: derivedMemorySkillDir, source: "test" });
+    assert.equal(result.diagnostics.length, 0);
+    assert.deepEqual(result.skills.map((skill) => skill.name), ["manage-derived-memory"]);
+
+    const content = await readFile(join(derivedMemorySkillDir, "SKILL.md"), "utf8");
+    assert.ok(content.split(/\r?\n/).length <= 100);
+    assert.match(content, /before any trend, comparison, diagnosis, risk, or recommendation request/);
+    assert.match(content, /call `list` with `scope: "all"` before any\s+new domain reads/);
+    assert.match(content, /even without words such as "previous" or\s+"remember"/);
+    assert.match(content, /Discovery and domain access are two ordered phases/);
+    assert.match(content, /never emit memory and\s+domain tool calls in the same assistant batch/);
+    assert.match(content, /answer directly when it fully covers the\s+request/);
+    assert.match(content, /only the domain data needed for uncovered subquestions/);
+    assert.match(content, /Do not\s+re-read sources merely because the memory came from an earlier session or time/);
+    assert.match(content, /filters \*\*memory visibility\*\*, never the business subject/);
+    assert.match(content, /Omit `scope` or use `all` unless the user explicitly restricts/);
+    assert.match(content, /Determine `scope` solely from that\s+visibility intent/);
+    assert.match(content, /Business subjects, entities, ownership language, analysis\s+ranges, and domain terminology must not influence it/);
+    assert.match(content, /`list\.limit` is the page size/);
+    assert.match(content, /`list\.offset` is the\s+zero-based card offset/);
+    assert.match(content, /`list` returns only `id` and `title`/);
+    assert.match(content, /nextOffset/);
+    assert.match(content, /Always `read` a selected ID/);
+    assert.match(content, /Treat `status` from `read` as authoritative/);
+    assert.match(content, /Runtime has just verified that every recorded source dependency still\s+matches its saved snapshot/);
+    assert.match(content, /latest derived\s+conclusion for its declared analysis scope/);
+    assert.match(content, /older save\s+time or earlier session is not a reason to re-read the same sources/);
+    assert.match(content, /does not claim coverage of data outside that scope/);
+    assert.match(content, /Stale reads do not return old content/);
+    assert.match(content, /ask once whether\s+the user wants it rebuilt/);
+    assert.match(content, /`rebuildInstruction`/);
+    assert.match(content, /`replace` with `confirmedByUser: true`/);
+    assert.match(content, /`publish\.visibility` is the destination audience/);
+    assert.match(content, /Never `forget` a\s+memory because it is stale or superseded/);
+    assert.doesNotMatch(
+      content,
+      /includeStale|action: "search"|teamops|manage-bastion-team/,
+    );
+    const metadata = await readFile(
+      join(derivedMemorySkillDir, "agents", "openai.yaml"),
+      "utf8",
+    );
+    assert.doesNotMatch(metadata, /teamops|manage-bastion-team/);
   });
 });
 
