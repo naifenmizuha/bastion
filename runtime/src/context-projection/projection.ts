@@ -1,6 +1,10 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import type { TeamOpsToolDetails } from "../teamops/types.ts";
 import {
+  BASTION_HELP_OUTPUT_TYPE,
+  BASTION_INTRODUCTION_INSTRUCTION_TYPE,
+} from "../onboarding/extension.ts";
+import {
   isTeamOpsDetailsKind,
   isTeamOpsToolName,
 } from "../teamops/types.ts";
@@ -35,6 +39,7 @@ export interface ContextProjectionDiagnostics {
   toolCallsRemoved: number;
   toolResultsRemoved: number;
   receiptsAdded: number;
+  ephemeralMessagesRemoved: number;
   warnings: string[];
 }
 
@@ -51,6 +56,7 @@ interface ProjectedTurn {
   toolCallsRemoved: number;
   toolResultsRemoved: number;
   receiptAdded: boolean;
+  ephemeralMessagesRemoved: number;
   warnings: string[];
 }
 
@@ -80,6 +86,20 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 
 function isAssistant(message: AgentMessage): message is AssistantMessage {
   return message.role === "assistant";
+}
+
+function customType(message: AgentMessage): string | undefined {
+  return message.role === "custom" ? message.customType : undefined;
+}
+
+function isEphemeralOnboardingMessage(message: AgentMessage): boolean {
+  const type = customType(message);
+  return type === BASTION_INTRODUCTION_INSTRUCTION_TYPE ||
+    type === BASTION_HELP_OUTPUT_TYPE;
+}
+
+function isHelpOutput(message: AgentMessage): boolean {
+  return customType(message) === BASTION_HELP_OUTPUT_TYPE;
 }
 
 function toolCallBlocks(message: MessageLike): Record<string, unknown>[] {
@@ -358,12 +378,34 @@ function projectTurn(
       toolCallsRemoved: 0,
       toolResultsRemoved: 0,
       receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
       warnings: [],
     };
   }
-  const terminalIndex = terminal.index;
+  const completedMessages = messages.filter(
+    (message) => !isEphemeralOnboardingMessage(message),
+  );
+  const ephemeralMessagesRemoved = messages.length - completedMessages.length;
+  const completedTerminal = terminalAssistant(
+    completedMessages,
+    closedByFollowingUser,
+  );
+  if (!completedTerminal) {
+    return {
+      messages: [...messages],
+      projected: false,
+      incomplete: false,
+      conservative: true,
+      toolCallsRemoved: 0,
+      toolResultsRemoved: 0,
+      receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
+      warnings: ["INVALID_COMPLETED_TURN_AFTER_EPHEMERAL_FILTER"],
+    };
+  }
+  const terminalIndex = completedTerminal.index;
 
-  const protocol = validateCompletedToolProtocol(messages, terminalIndex);
+  const protocol = validateCompletedToolProtocol(completedMessages, terminalIndex);
   if (!protocol.valid) {
     return {
       messages: [...messages],
@@ -373,11 +415,12 @@ function projectTurn(
       toolCallsRemoved: 0,
       toolResultsRemoved: 0,
       receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
       warnings: [protocol.warning],
     };
   }
 
-  const unsupported = messages
+  const unsupported = completedMessages
     .slice(1, terminalIndex)
     .find(
       (message) =>
@@ -392,11 +435,12 @@ function projectTurn(
       toolCallsRemoved: 0,
       toolResultsRemoved: 0,
       receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
       warnings: [`UNSUPPORTED_TURN_MESSAGE:${unsupported.role}`],
     };
   }
 
-  const receipt = buildReceipt(messages);
+  const receipt = buildReceipt(completedMessages);
   if (
     receipt.warnings.some(
       (warning) =>
@@ -412,12 +456,13 @@ function projectTurn(
       toolCallsRemoved: 0,
       toolResultsRemoved: 0,
       receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
       warnings: receipt.warnings,
     };
   }
 
-  const first = messages[0];
-  const final = messages[terminalIndex];
+  const first = completedMessages[0];
+  const final = completedMessages[terminalIndex];
   if (!first || first.role !== "user" || !final || !isAssistant(final)) {
     return {
       messages: [...messages],
@@ -427,6 +472,7 @@ function projectTurn(
       toolCallsRemoved: 0,
       toolResultsRemoved: 0,
       receiptAdded: false,
+      ephemeralMessagesRemoved: 0,
       warnings: ["INVALID_COMPLETED_TURN_BOUNDARY"],
     };
   }
@@ -445,6 +491,7 @@ function projectTurn(
     toolCallsRemoved: protocol.calls,
     toolResultsRemoved: protocol.results,
     receiptAdded: receipt.text !== undefined,
+    ephemeralMessagesRemoved,
     warnings: receipt.warnings,
   };
 }
@@ -462,6 +509,7 @@ export function projectContext(
     toolCallsRemoved: 0,
     toolResultsRemoved: 0,
     receiptsAdded: 0,
+    ephemeralMessagesRemoved: 0,
     warnings: [],
   };
 
@@ -469,6 +517,11 @@ export function projectContext(
   while (index < messages.length) {
     const message = messages[index];
     if (!message) break;
+    if (isHelpOutput(message)) {
+      diagnostics.ephemeralMessagesRemoved += 1;
+      index += 1;
+      continue;
+    }
     if (message.role !== "user") {
       projected.push(message);
       index += 1;
@@ -487,6 +540,7 @@ export function projectContext(
     diagnostics.toolCallsRemoved += turn.toolCallsRemoved;
     diagnostics.toolResultsRemoved += turn.toolResultsRemoved;
     if (turn.receiptAdded) diagnostics.receiptsAdded += 1;
+    diagnostics.ephemeralMessagesRemoved += turn.ephemeralMessagesRemoved;
     diagnostics.warnings.push(...turn.warnings);
     index = end;
   }

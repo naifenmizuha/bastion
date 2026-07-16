@@ -37,6 +37,12 @@ import {
 import { createBastionCompactionExtension } from "./compaction/extension.ts";
 import { createContextProjectionExtension } from "./context-projection/extension.ts";
 import { createDeveloperMode } from "./developer-mode/extension.ts";
+import { createOnboardingExtension } from "./onboarding/extension.ts";
+import {
+  resolveModelRoutingConfig,
+  resolveModelRoutingModels,
+} from "./model-routing/config.ts";
+import { createModelRoutingExtension } from "./model-routing/extension.ts";
 import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
 import { VerifiedReadLedger } from "./derived-memory/verified-read-ledger.ts";
@@ -184,12 +190,19 @@ export async function createBastionRuntimeHost(
   if (options.model && !selectedModel) {
     throw new Error(`model does not exist: ${options.model.provider}/${options.model.id}`);
   }
+  const modelRoutingConfig = options.model
+    ? undefined
+    : resolveModelRoutingConfig();
+  const modelRoutingModels = modelRoutingConfig
+    ? await resolveModelRoutingModels(modelRegistry, modelRoutingConfig)
+    : undefined;
 
   const cliOptions = {
     executablePath: options.executablePath ?? join(repoRoot, "out", "teamops"),
     databasePath,
     timeoutMs,
   };
+  const onboardingExtension = createOnboardingExtension();
   const contextProjectionExtension = createContextProjectionExtension();
   const derivedMemoryStore = new DerivedMemoryStore(
     join(agentDir, "derived-memory.sqlite"),
@@ -239,6 +252,14 @@ export async function createBastionRuntimeHost(
       onProviderPayload: (payload, model, context) =>
         developerMode.capturePayload("compaction", payload, model, context),
     });
+    const modelRoutingExtension = modelRoutingModels
+      ? createModelRoutingExtension({
+          models: modelRoutingModels,
+          settingsManager,
+          onProviderPayload: (payload, model, context) =>
+            developerMode.capturePayload("router", payload, model, context),
+        })
+      : undefined;
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
@@ -249,11 +270,13 @@ export async function createBastionRuntimeHost(
         additionalSkillPaths: skillPaths,
         extensionFactories: [
           bastionHeaderExtension,
+          onboardingExtension,
           teamOpsExtension,
           derivedMemoryExtension,
           baseballRulesExtension,
           bastionCompactionExtension,
           contextProjectionExtension,
+          ...(modelRoutingExtension ? [modelRoutingExtension] : []),
           developerMode.extension,
         ],
       },

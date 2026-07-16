@@ -31,7 +31,7 @@ check:
     cd {{runtime_dir}} && ./node_modules/.bin/tsc --noEmit
 
 test: go-build
-    cd {{runtime_dir}} && node --import tsx --test src/*.test.ts src/teamops/*.test.ts src/baseball-rules/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/scenario/*.test.ts src/eval/*.test.ts
+    cd {{runtime_dir}} && node --import tsx --test src/*.test.ts src/teamops/*.test.ts src/baseball-rules/*.test.ts src/compaction/*.test.ts src/context-projection/*.test.ts src/derived-memory/*.test.ts src/developer-mode/*.test.ts src/model-routing/*.test.ts src/scenario/*.test.ts src/eval/*.test.ts
 
 # Run the human-friendly TOML evaluation suite against the Athletics 2025 baseline.
 # Example: just eval evals/athletics-smoke.toml
