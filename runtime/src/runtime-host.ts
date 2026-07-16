@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Markdown } from "@earendil-works/pi-tui";
+import type { ThinkingLevel } from "./eval/types.ts";
 import {
   AuthStorage,
   type AgentSessionRuntime,
@@ -36,6 +37,12 @@ import {
 import { createBastionCompactionExtension } from "./compaction/extension.ts";
 import { createContextProjectionExtension } from "./context-projection/extension.ts";
 import { createDeveloperMode } from "./developer-mode/extension.ts";
+import { createOnboardingExtension } from "./onboarding/extension.ts";
+import {
+  resolveModelRoutingConfig,
+  resolveModelRoutingModels,
+} from "./model-routing/config.ts";
+import { createModelRoutingExtension } from "./model-routing/extension.ts";
 import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
 import { DerivedMemoryEvidenceRegistry } from "./derived-memory/evidence-registry.ts";
@@ -69,10 +76,17 @@ const bastionHeaderExtension: ExtensionFactory = (pi) => {
 
 export interface BastionRuntimeHostOptions {
   databasePath?: string;
+  executablePath?: string;
   agentDir?: string;
   configAgentDir?: string;
+  /** Load user-configured Pi packages. Evaluations disable these and use Runtime resources only. */
+  loadConfiguredPackages?: boolean;
   confirmWrite?: ConfirmWrite;
   principal?: PrincipalContext;
+  /** Optional per-session model override. It is not persisted to user settings. */
+  model?: { provider: string; id: string };
+  /** Optional per-session thinking level. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface BastionRuntimeHost {
@@ -164,16 +178,32 @@ export async function createBastionRuntimeHost(
   mkdirSync(agentDir, { recursive: true });
   const authStorage = AuthStorage.create(join(configAgentDir, "auth.json"));
   const settingsManager = SettingsManager.create(repoRoot, configAgentDir);
+  if (options.loadConfiguredPackages === false) {
+    settingsManager.applyOverrides({ packages: [] });
+  }
   const modelRegistry = ModelRegistry.create(
     authStorage,
     join(configAgentDir, "models.json"),
   );
+  const selectedModel = options.model
+    ? modelRegistry.find(options.model.provider, options.model.id)
+    : undefined;
+  if (options.model && !selectedModel) {
+    throw new Error(`model does not exist: ${options.model.provider}/${options.model.id}`);
+  }
+  const modelRoutingConfig = options.model
+    ? undefined
+    : resolveModelRoutingConfig();
+  const modelRoutingModels = modelRoutingConfig
+    ? await resolveModelRoutingModels(modelRegistry, modelRoutingConfig)
+    : undefined;
 
   const cliOptions = {
-    executablePath: join(repoRoot, "out", "teamops"),
+    executablePath: options.executablePath ?? join(repoRoot, "out", "teamops"),
     databasePath,
     timeoutMs,
   };
+  const onboardingExtension = createOnboardingExtension();
   const contextProjectionExtension = createContextProjectionExtension();
   const derivedMemoryStore = new DerivedMemoryStore(
     join(agentDir, "derived-memory.sqlite"),
@@ -229,6 +259,14 @@ export async function createBastionRuntimeHost(
       onProviderPayload: (payload, model, context) =>
         developerMode.capturePayload("compaction", payload, model, context),
     });
+    const modelRoutingExtension = modelRoutingModels
+      ? createModelRoutingExtension({
+          models: modelRoutingModels,
+          settingsManager,
+          onProviderPayload: (payload, model, context) =>
+            developerMode.capturePayload("router", payload, model, context),
+        })
+      : undefined;
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
@@ -239,11 +277,13 @@ export async function createBastionRuntimeHost(
         additionalSkillPaths: skillPaths,
         extensionFactories: [
           bastionHeaderExtension,
+          onboardingExtension,
           teamOpsExtension,
           derivedMemoryExtension,
           baseballRulesExtension,
           bastionCompactionExtension,
           contextProjectionExtension,
+          ...(modelRoutingExtension ? [modelRoutingExtension] : []),
           developerMode.extension,
         ],
       },
@@ -253,6 +293,8 @@ export async function createBastionRuntimeHost(
         services,
         sessionManager,
         sessionStartEvent,
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
         tools: [
           "read",
           TEAMOPS_TOOL_NAME,

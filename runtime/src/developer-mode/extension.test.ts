@@ -157,6 +157,32 @@ describe("developer mode extension", () => {
     assert.deepEqual(record.payload, { input: "summary prompt" });
   });
 
+  it("records router payloads with their own source", async () => {
+    const root = await temporaryDirectory();
+    const { developerMode, command } = setup({
+      logDirectory: join(root, "logs"),
+      sessionId: "session-router",
+    });
+    const ctx = context();
+
+    await command.handler("", ctx.value);
+    await developerMode.capturePayload(
+      "router",
+      { input: "classification prompt" },
+      { provider: "simple-provider", id: "simple-model" },
+      ctx.value,
+    );
+
+    const record = JSON.parse(
+      (await readFile(developerMode.logFilePath, "utf8")).trim(),
+    );
+    assert.equal(record.source, "router");
+    assert.deepEqual(record.model, {
+      provider: "simple-provider",
+      id: "simple-model",
+    });
+  });
+
   it("uses a distinct log path for each session id", () => {
     const first = createDeveloperMode({
       logDirectory: "/tmp/bastion-logs",

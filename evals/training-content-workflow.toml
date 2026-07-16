@@ -1,0 +1,269 @@
+schema_version = 2
+name = "队员训练内容上传、审批与偏好计划评测"
+description = "验证队员批量上传自训和推荐内容、教练批量审批，以及基于已审批内容按三种偏好生成训练计划的完整闭环。"
+runs = 1
+timeout_seconds = 900
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[[cases]]
+id = "training-content-approval-and-plans"
+title = "20 条自训、15 条推荐、10 条审批与 3 份偏好计划"
+tags = ["write", "training", "recommendation", "review", "plan", "multi-turn"]
+write_permission = "allow"
+
+[[cases.turns]]
+id = "upload-self-training"
+prompt = """
+以下内容是队员已经确认要上传的自训记录，由我明确授权，然后看看成功条数
+
+1. Nick Kurtz，2026-07-01，content=打击架定点击球 80 球，重点保持头部稳定，reflection=内角球拉打稳定，外角球仍有过早开肩
+2. Nick Kurtz，2026-07-02，content=下肢力量深蹲 5 组和药球旋转 4 组，reflection=髋部启动更连贯，末组核心稳定下降
+3. Nick Kurtz，2026-07-03，content=高位速球识别 60 球和短棒练习 30 球，reflection=追打率主观下降，高位边缘球判断仍慢
+4. Nick Kurtz，2026-07-04，content=一垒接球脚步 40 次和短距离冲刺 8 组，reflection=接球脚步顺畅，冲刺后两组疲劳明显
+5. Lawrence Butler，2026-07-01，content=外角球反方向击球 70 球，reflection=中线方向稳定，强拉时肩膀仍会提前打开
+6. Lawrence Butler，2026-07-02，content=外野第一步判断 50 次和围墙球路线 20 次，reflection=正面飞球判断稳定，背身回追路线需要更果断
+7. Lawrence Butler，2026-07-03，content=一垒到三垒跑垒 12 组和滑垒 10 次，reflection=绕垒路线更紧凑，疲劳时观察三垒教练偏晚
+8. Lawrence Butler，2026-07-04，content=弹力带肩袖恢复和轻量传球 60 次，reflection=肩部无痛，长距离传球量仍需控制
+9. Shea Langeliers，2026-07-01，content=低球接捕框架 80 次，reflection=手套移动幅度减小，右侧低球偶尔上抬
+10. Shea Langeliers，2026-07-02，content=挡球后起身传二垒 40 次，reflection=正面挡球稳定，三垒侧移动后转移偏慢
+11. Shea Langeliers，2026-07-03，content=配球视频复盘 45 分钟和暗号演练 30 次，reflection=左打者方案更清楚，局间调整表达需要更简洁
+12. Shea Langeliers，2026-07-04，content=捕手下肢力量和髋踝活动度训练 50 分钟，reflection=深蹲接捕耐力改善，右踝活动度仍受限
+13. JP Sears，2026-07-01，content=牛棚直球变速球交替 45 球，reflection=变速球落点稳定，直球手臂侧偏差仍多
+14. JP Sears，2026-07-02，content=牵制与 slide step 共 30 次，reflection=动作时间更一致，二垒有人时节奏变化不足
+15. JP Sears，2026-07-03，content=投后肩袖恢复和下肢拉伸 40 分钟，reflection=恢复状态正常，左侧髋屈肌略紧
+16. JP Sears，2026-07-04，content=边角投球靶位练习 50 球，reflection=外角低位命中改善，连续失投后调整偏慢
+17. Mason Miller，2026-07-01，content=低强度牛棚 30 球和释放点录像检查，reflection=释放点集中，最高强度尚未测试
+18. Mason Miller，2026-07-02，content=肩胛稳定和核心抗旋转训练 45 分钟，reflection=动作无痛，右侧抗旋转末组有代偿
+19. Mason Miller，2026-07-03，content=一垒补位和短距离敏捷 12 组，reflection=补位路线稳定，急停时重心略高
+20. Mason Miller，2026-07-04，content=恢复跑、按摩球放松和睡眠记录复盘，reflection=主观疲劳下降，睡眠连续性仍需改善
+"""
+
+[[cases.turns.expectations]]
+id = "self-training-batch-write"
+title = "使用一次批量写入上传自训"
+type = "tool_called"
+weight = 3
+tool = "teamops"
+status = "succeeded"
+command = ["batch", "write"]
+
+[[cases.turns.expectations]]
+id = "self-training-count-response"
+title = "回答确认 20 条"
+type = "response_regex"
+weight = 2
+pattern = "20\\s*条"
+flags = "u"
+
+[[cases.turns]]
+id = "upload-recommendations"
+prompt = """
+现在请上传下面 15 条队员推荐训练内容。我已经明确授权全部写入。完成后说明成功上传数量和当前状态。
+
+1. Nick Kurtz | https://example.com/evals/training/nk-zone | reason=需要减少好球带上沿追打 | type=hitting | summary=高位速球识别与决策训练
+2. Nick Kurtz | https://example.com/evals/training/nk-oppo | reason=外角球容易过早开肩 | type=hitting | summary=外角球反方向击球和延迟开肩训练
+3. Nick Kurtz | https://example.com/evals/training/nk-core | reason=末组核心稳定性下降 | type=strength | summary=核心抗旋转与髋部发力链训练
+4. Lawrence Butler | https://example.com/evals/training/lb-route | reason=背身回追路线不够果断 | type=outfield | summary=外野第一步和围墙球回追路线训练
+5. Lawrence Butler | https://example.com/evals/training/lb-third | reason=疲劳时观察三垒教练偏晚 | type=baserunning | summary=一垒到三垒的观察与决策训练
+6. Lawrence Butler | https://example.com/evals/training/lb-oppo | reason=强拉时肩膀提前打开 | type=hitting | summary=中线及反方向击球训练
+7. Shea Langeliers | https://example.com/evals/training/sl-frame | reason=右侧低球接捕偶尔上抬 | type=catching | summary=低球框架和安静手套训练
+8. Shea Langeliers | https://example.com/evals/training/sl-block | reason=三垒侧挡球后转移偏慢 | type=catching | summary=侧向挡球后起身与传球训练
+9. Shea Langeliers | https://example.com/evals/training/sl-ankle | reason=右踝活动度限制深蹲接捕 | type=strength | summary=捕手髋踝活动度与下肢耐力训练
+10. JP Sears | https://example.com/evals/training/js-command | reason=直球手臂侧失投偏多 | type=pitching | summary=直球边角控制和失投后重置训练
+11. JP Sears | https://example.com/evals/training/js-tempo | reason=二垒有人时节奏变化不足 | type=pitching | summary=牵制、停顿和 slide step 节奏训练
+12. JP Sears | https://example.com/evals/training/js-recovery | reason=左侧髋屈肌略紧 | type=strength | summary=投后髋部活动度和肩袖恢复训练
+13. Mason Miller | https://example.com/evals/training/mm-release | reason=需要确认高强度下释放点稳定性 | type=pitching | summary=渐进强度牛棚与释放点监控
+14. Mason Miller | https://example.com/evals/training/mm-core | reason=右侧抗旋转末组出现代偿 | type=strength | summary=低负荷核心抗旋转与动作质量训练
+15. Mason Miller | https://example.com/evals/training/mm-sleep | reason=睡眠连续性仍需改善 | type=strength | summary=恢复日负荷管理与睡眠习惯方案
+"""
+
+[[cases.turns.expectations]]
+id = "recommendations-batch-write"
+title = "使用一次批量写入上传推荐"
+type = "tool_called"
+weight = 3
+tool = "teamops"
+status = "succeeded"
+command = ["batch", "write"]
+
+[[cases.turns.expectations]]
+id = "recommendations-count-response"
+title = "回答确认 15 条待审批推荐"
+type = "response_regex"
+weight = 2
+pattern = "15\\s*条.*(待审批|pending)"
+flags = "iu"
+
+[[cases.turns]]
+id = "approve-ten-recommendations"
+prompt = """
+我是教练 Coach Rivera。请读取待审批推荐，然后批准推荐前十条；其余保持待审批。每一条批准理由都使用“与近期自训反馈一致，可进入正式训练“。最后准确说明批准和仍待审批的数量。
+"""
+
+[[cases.turns.expectations]]
+id = "reads-pending-recommendations"
+title = "审批前读取待审批推荐"
+type = "tool_called"
+weight = 2
+tool = "teamops"
+status = "succeeded"
+command = ["drill", "recommend", "list", "--status", "pending"]
+
+[[cases.turns.expectations]]
+id = "approvals-batch-write"
+title = "使用一次批量写入完成审批"
+type = "tool_called"
+weight = 3
+tool = "teamops"
+status = "succeeded"
+command = ["batch", "write"]
+
+[[cases.turns.expectations]]
+id = "approval-count-response"
+title = "回答 10 条已批准和 5 条待审批"
+type = "response_regex"
+weight = 2
+pattern = "10\\s*条.*(批准|审批通过|approved).{0,80}5\\s*条.*(待审批|pending)"
+flags = "isu"
+
+[[cases.turns]]
+id = "generate-data-driven-plan"
+prompt = """
+作为 Coach Rivera，请为 Nick Kurtz 生成下一训练周期的训练计划，不要保存为训练报告。必须先读取他的已审批训练内容，并结合 2026-07-01 到 2026-07-04 的四条自训反馈。偏好是“数据驱动”：回答必须以字面标记 [偏好:数据驱动] 开头，按训练日列出已审批训练主题、训练量或组数、可复查指标和周期末验收标准。不得采用未审批推荐。
+"""
+
+[[cases.turns.expectations]]
+id = "reads-nick-approved-training"
+title = "读取 Nick Kurtz 已审批训练"
+type = "tool_called"
+weight = 2
+tool = "teamops"
+status = "succeeded"
+command = ["drill", "training", "list", "--name", "Nick Kurtz"]
+
+[[cases.turns.expectations]]
+id = "returns-data-driven-plan"
+title = "输出数据驱动训练计划"
+type = "response_contains"
+weight = 3
+value = "[偏好:数据驱动]"
+
+[[cases.turns.expectations]]
+id = "data-driven-plan-quality"
+title = "数据驱动计划质量"
+type = "rubric"
+weight = 3
+criteria = "计划只使用 Nick Kurtz 已审批的 3 条训练内容，并结合其四条自训反馈；按训练日提供训练量、可复查指标和周期末验收标准，体现数据驱动偏好。"
+anchors = { "1" = "不是训练计划、使用待审批内容或大量编造", "3" = "计划基本可执行，但训练量、指标或事实关联不完整", "5" = "计划严格基于已审批内容与自训反馈，日程、训练量、指标和验收标准完整清楚" }
+required_facts = ["覆盖高位速球识别、反方向击球和核心抗旋转", "不采用 ID 11 至 15 的待审批推荐"]
+forbidden = ["写入 training_reports", "把待审批内容写成已批准事实", "混用其他队员的训练内容"]
+
+[[cases.turns]]
+id = "generate-encouraging-plan"
+prompt = """
+作为 Coach Rivera，请为 Lawrence Butler 生成下一训练周期的训练计划，不要保存为训练报告。必须先读取他的已审批训练内容，并结合 2026-07-01 到 2026-07-04 的四条自训反馈。偏好是“鼓励行动”：回答必须以字面标记 [偏好:鼓励行动] 开头，先肯定已有进步，再按训练日把已批准训练转成清晰可执行的下一步；语气积极，但不回避背身回追、观察三垒教练和提前开肩的问题。不得采用未审批推荐。
+"""
+
+[[cases.turns.expectations]]
+id = "reads-lawrence-approved-training"
+title = "读取 Lawrence Butler 已审批训练"
+type = "tool_called"
+weight = 2
+tool = "teamops"
+status = "succeeded"
+command = ["drill", "training", "list", "--name", "Lawrence Butler"]
+
+[[cases.turns.expectations]]
+id = "returns-encouraging-plan"
+title = "输出鼓励行动训练计划"
+type = "response_contains"
+weight = 3
+value = "[偏好:鼓励行动]"
+
+[[cases.turns.expectations]]
+id = "encouraging-plan-quality"
+title = "鼓励行动计划质量"
+type = "rubric"
+weight = 3
+criteria = "计划只使用 Lawrence Butler 已审批的 3 条训练内容，并结合其四条自训反馈；先肯定进步，再以积极而诚实的方式安排逐日行动，体现鼓励行动偏好。"
+anchors = { "1" = "不是训练计划、使用待审批内容或回避关键问题", "3" = "有基本日程和鼓励表达，但行动不够具体或事实关联不足", "5" = "准确肯定已有进步，逐日行动具体，并正面处理回追、跑垒观察和提前开肩问题" }
+required_facts = ["覆盖外野回追、一垒到三垒决策和反方向击球", "不采用 ID 11 至 15 的待审批推荐"]
+forbidden = ["写入 training_reports", "把待审批内容写成已批准事实", "混用其他队员的训练内容"]
+
+[[cases.turns]]
+id = "generate-risk-first-plan"
+prompt = """
+作为 Coach Rivera，请为 Shea Langeliers 生成下一训练周期的训练计划，不要保存为训练报告。必须先读取他的已审批训练内容，并结合 2026-07-01 到 2026-07-04 的四条自训反馈。偏好是“风险优先”：回答必须以字面标记 [偏好:风险优先] 开头，按风险和依赖顺序安排已批准训练；明确右踝活动度、三垒侧挡球转移和训练负荷边界，并给出停止或降负荷条件。不得采用未审批推荐。
+"""
+
+[[cases.turns.expectations]]
+id = "reads-shea-approved-training"
+title = "读取 Shea Langeliers 已审批训练"
+type = "tool_called"
+weight = 2
+tool = "teamops"
+status = "succeeded"
+command = ["drill", "training", "list", "--name", "Shea Langeliers"]
+
+[[cases.turns.expectations]]
+id = "returns-risk-first-plan"
+title = "输出风险优先训练计划"
+type = "response_contains"
+weight = 3
+value = "[偏好:风险优先]"
+
+[[cases.turns.expectations]]
+id = "risk-first-plan-quality"
+title = "风险优先计划质量"
+type = "rubric"
+weight = 3
+criteria = "计划只使用 Shea Langeliers 已审批的 3 条训练内容，并结合其四条自训反馈；按依赖关系安排训练，明确右踝和挡球转移风险、负荷边界及停止或降负荷条件，体现风险优先偏好。"
+anchors = { "1" = "不是训练计划、使用待审批内容或缺少风险控制", "3" = "识别主要风险，但依赖顺序、负荷边界或停止条件不完整", "5" = "训练顺序与依赖清楚，风险、负荷边界和停止或降负荷条件具体可执行" }
+required_facts = ["覆盖低球框架、侧向挡球转移和髋踝活动度", "不采用 ID 11 至 15 的待审批推荐"]
+forbidden = ["写入 training_reports", "把待审批内容写成已批准事实", "混用其他队员的训练内容"]
+
+[[cases.expectations]]
+id = "twenty-self-training-reports-persisted"
+title = "20 条队员自训全部落库"
+type = "sql"
+weight = 5
+database = "teamops"
+query = "SELECT COUNT(*) AS count FROM training_reports WHERE date BETWEEN '2026-07-01' AND '2026-07-04' AND name IN ('Nick Kurtz', 'Lawrence Butler', 'Shea Langeliers', 'JP Sears', 'Mason Miller')"
+expected_rows = [{ count = 20 }]
+
+[[cases.expectations]]
+id = "fifteen-recommendations-persisted"
+title = "15 条队员推荐全部落库"
+type = "sql"
+weight = 5
+database = "teamops"
+query = "SELECT COUNT(*) AS count FROM drill_recommendations WHERE url LIKE 'https://example.com/evals/training/%'"
+expected_rows = [{ count = 15 }]
+
+[[cases.expectations]]
+id = "ten-approved-five-pending"
+title = "10 条已批准且 5 条保持待审批"
+type = "sql"
+weight = 5
+database = "teamops"
+query = "SELECT SUM(CASE WHEN is_approved = 1 AND reviewed_by = 'Coach Rivera' THEN 1 ELSE 0 END) AS approved, SUM(CASE WHEN is_approved = 0 AND reviewed_by IS NULL THEN 1 ELSE 0 END) AS pending FROM drill_recommendations WHERE url LIKE 'https://example.com/evals/training/%'"
+expected_rows = [{ approved = 10, pending = 5 }]
+
+[[cases.expectations]]
+id = "no-plan-written-as-training-report"
+title = "训练计划不会误写为训练报告"
+type = "sql"
+weight = 5
+database = "teamops"
+query = "SELECT COUNT(*) AS count FROM training_reports WHERE date > '2026-07-04' AND name IN ('Nick Kurtz', 'Lawrence Butler', 'Shea Langeliers')"
+expected_rows = [{ count = 0 }]

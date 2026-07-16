@@ -1,0 +1,86 @@
+schema_version = 2
+name = "Bastion 入门介绍评测"
+description = "验证自然语言功能介绍按需触发，且不调用工具或披露内部实现。"
+runs = 1
+timeout_seconds = 120
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[[cases]]
+id = "capability-introduction"
+title = "面向用户的功能介绍"
+tags = ["onboarding", "no-tools"]
+write_permission = "deny"
+
+[[cases.turns]]
+id = "ask-capabilities"
+prompt = "你有什么功能？"
+
+[[cases.turns.expectations]]
+id = "mentions-user-capabilities"
+title = "介绍核心用户能力"
+type = "response_regex"
+weight = 4
+pattern = "(球队|球员).*(比赛|复盘).*(阵容|训练|规则)"
+flags = "su"
+
+[[cases.turns.expectations]]
+id = "no-teamops"
+title = "不调用球队数据工具"
+type = "tool_not_called"
+weight = 2
+tool = "teamops"
+
+[[cases.turns.expectations]]
+id = "no-derived-memory"
+title = "不调用派生记忆工具"
+type = "tool_not_called"
+weight = 1
+tool = "derived_memory"
+
+[[cases.turns.expectations]]
+id = "no-rule-retrieval"
+title = "不调用规则检索工具"
+type = "tool_not_called"
+weight = 1
+tool = "retrieve"
+
+[[cases.turns.expectations]]
+id = "no-file-read"
+title = "不读取文件"
+type = "tool_not_called"
+weight = 1
+tool = "read"
+
+[[cases.turns.expectations]]
+id = "no-rule-ingest"
+title = "不调用规则录入工具"
+type = "tool_not_called"
+weight = 1
+tool = "ingest"
+
+[[cases.turns.expectations]]
+id = "no-chunk-preview"
+title = "不调用分块预览工具"
+type = "tool_not_called"
+weight = 1
+tool = "chunk_preview"
+
+[[cases.turns.expectations]]
+id = "user-facing-introduction"
+title = "介绍面向用户且提供可尝试问题"
+type = "rubric"
+weight = 3
+criteria = "回答应简短介绍 Bastion 能协助的用户任务，并给出三个可直接尝试的问题；不得披露内部架构或能力名称。"
+anchors = { "1" = "主要罗列内部工具或实现，或没有介绍用户能力", "3" = "基本介绍了用户能力，但示例不足或夹杂少量内部术语", "5" = "简洁覆盖核心用户能力，给出三个自然示例，完全不披露内部实现" }
+required_facts = ["球队或球员管理", "比赛记录或复盘", "阵容、训练或规则能力", "三个示例问题"]
+forbidden = ["teamops", "derived_memory", "chunk_preview", "ingest", "Skill", "CLI", "SQLite", "Runtime"]

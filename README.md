@@ -88,6 +88,11 @@ pnpm dev
 
 Runtime 会从 `runtime/.env.local` 和 `runtime/.env` 加载尚未在 shell 中设置的环境变量，并在 `~/.bastion/agent` 保存本地 Agent 配置与索引。
 
+如需按任务性质自动选择模型，可在 `runtime/.env.local` 中同时配置
+`BASTION_SIMPLE_MODEL_PROVIDER`、`BASTION_SIMPLE_MODEL_ID`、
+`BASTION_COMPLEX_MODEL_PROVIDER` 和 `BASTION_COMPLEX_MODEL_ID`。事务性任务使用简单模型，
+分析、建议、方案和创作任务使用复杂模型；缺少任一字段时 Runtime 会拒绝以不完整路由配置启动。
+
 ## CLI 示例
 
 添加球员：

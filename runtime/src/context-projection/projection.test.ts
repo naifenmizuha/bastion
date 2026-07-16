@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import type { TeamOpsToolDetails } from "../teamops/types.ts";
+import {
+  BASTION_HELP_OUTPUT_TYPE,
+  BASTION_INTRODUCTION_INSTRUCTION_TYPE,
+} from "../onboarding/extension.ts";
 import { projectContext } from "./projection.ts";
 
 type AgentMessage = ContextEvent["messages"][number];
@@ -97,6 +101,21 @@ function toolResult(
   };
 }
 
+function custom(
+  customType: string,
+  content: string,
+  display = false,
+  timestamp = 2,
+): AgentMessage {
+  return {
+    role: "custom",
+    customType,
+    content,
+    display,
+    timestamp,
+  };
+}
+
 function finalText(message: AgentMessage): string {
   assert.equal(message.role, "assistant");
   return message.content
@@ -106,6 +125,67 @@ function finalText(message: AgentMessage): string {
 }
 
 describe("context projection", () => {
+  it("keeps the onboarding instruction in the current unfinished turn", () => {
+    const messages = [
+      user("你有什么功能？"),
+      custom(
+        BASTION_INTRODUCTION_INSTRUCTION_TYPE,
+        "Introduce Bastion for this turn.",
+      ),
+    ];
+
+    const result = projectContext(messages);
+
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.diagnostics.ephemeralMessagesRemoved, 0);
+  });
+
+  it("removes the onboarding instruction after its turn completes", () => {
+    const instruction = "Introduce Bastion for this turn.";
+    const result = projectContext([
+      user("你有什么功能？"),
+      custom(BASTION_INTRODUCTION_INSTRUCTION_TYPE, instruction),
+      assistantText("我可以协助管理球队。", 3),
+      user("从哪里开始？", 4),
+    ]);
+
+    assert.deepEqual(
+      result.messages.map((message) => message.role),
+      ["user", "assistant", "user"],
+    );
+    assert.equal(JSON.stringify(result.messages).includes(instruction), false);
+    assert.equal(result.diagnostics.ephemeralMessagesRemoved, 1);
+  });
+
+  it("never sends visible /help output to the provider context", () => {
+    const result = projectContext([
+      custom(BASTION_HELP_OUTPUT_TYPE, "Visible help text", true),
+      user("继续", 2),
+    ]);
+
+    assert.deepEqual(result.messages, [user("继续", 2)]);
+    assert.equal(result.diagnostics.ephemeralMessagesRemoved, 1);
+  });
+
+  it("keeps unknown custom messages under the conservative projection policy", () => {
+    const unknown = custom("unknown-extension", "keep me");
+    const messages = [
+      user("Question"),
+      unknown,
+      assistantText("Answer", 3),
+      user("Next", 4),
+    ];
+
+    const result = projectContext(messages);
+
+    assert.deepEqual(result.messages, messages);
+    assert.equal(result.diagnostics.conservativeTurnsKept, 1);
+    assert.equal(result.diagnostics.ephemeralMessagesRemoved, 0);
+    assert.deepEqual(result.diagnostics.warnings, [
+      "UNSUPPORTED_TURN_MESSAGE:custom",
+    ]);
+  });
+
   it("keeps user questions and final answers while removing final reasoning", () => {
     const result = projectContext([
       user("Who played?"),

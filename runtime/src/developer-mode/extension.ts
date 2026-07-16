@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { hyperlink } from "@earendil-works/pi-tui";
 
-export type ProviderPayloadSource = "agent" | "compaction";
+export type ProviderPayloadSource = "agent" | "compaction" | "router";
 
 export interface ProviderModelIdentity {
   provider: string;
