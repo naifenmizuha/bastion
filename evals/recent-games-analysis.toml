@@ -15,9 +15,6 @@ model = "deepseek-v4-flash"
 minimum_case_pass_rate = 1.0
 minimum_suite_pass_rate = 1.0
 
-[scoring]
-pass_score = 80
-
 
 # 用例一：简单查询最近一场比赛的对手。
 [[cases]]
@@ -34,7 +31,7 @@ prompt = "我们最近一次比赛打的是谁？"
 id = "queries-latest-game"
 title = "只查询最近一场比赛"
 type = "tool_called"
-points = 30
+weight = 3
 tool = "teamops"
 status = "succeeded"
 command = ["game", "list", "--limit", "1"]
@@ -43,7 +40,7 @@ command = ["game", "list", "--limit", "1"]
 id = "answers-latest-opponent"
 title = "回答数据库中的最近对手"
 type = "response_regex"
-points = 40
+weight = 4
 pattern = "(Kansas City Royals|堪萨斯城皇家队?)"
 flags = "iu"
 
@@ -64,7 +61,7 @@ prompt = "我们最近5场比赛怎么打这么烂？进攻的问题出在哪里
 id = "lists-recent-five"
 title = "查询最近五场比赛"
 type = "tool_called"
-points = 10
+weight = 2
 tool = "teamops"
 status = "succeeded"
 command = ["game", "list", "--limit", "5"]
@@ -73,7 +70,7 @@ command = ["game", "list", "--limit", "5"]
 id = "reads-game-162"
 title = "读取比赛 162"
 type = "tool_called"
-points = 5
+weight = 1
 tool = "teamops"
 status = "succeeded"
 command = ["game", "analysis", "read", "--game-id", "162"]
@@ -82,7 +79,7 @@ command = ["game", "analysis", "read", "--game-id", "162"]
 id = "reads-game-161"
 title = "读取比赛 161"
 type = "tool_called"
-points = 5
+weight = 1
 tool = "teamops"
 status = "succeeded"
 command = ["game", "analysis", "read", "--game-id", "161"]
@@ -91,7 +88,7 @@ command = ["game", "analysis", "read", "--game-id", "161"]
 id = "reads-game-160"
 title = "读取比赛 160"
 type = "tool_called"
-points = 5
+weight = 1
 tool = "teamops"
 status = "succeeded"
 command = ["game", "analysis", "read", "--game-id", "160"]
@@ -100,7 +97,7 @@ command = ["game", "analysis", "read", "--game-id", "160"]
 id = "reads-game-159"
 title = "读取比赛 159"
 type = "tool_called"
-points = 5
+weight = 1
 tool = "teamops"
 status = "succeeded"
 command = ["game", "analysis", "read", "--game-id", "159"]
@@ -109,7 +106,7 @@ command = ["game", "analysis", "read", "--game-id", "159"]
 id = "reads-game-158"
 title = "读取比赛 158"
 type = "tool_called"
-points = 5
+weight = 1
 tool = "teamops"
 status = "succeeded"
 command = ["game", "analysis", "read", "--game-id", "158"]
@@ -118,7 +115,7 @@ command = ["game", "analysis", "read", "--game-id", "158"]
 id = "saves-derived-memory"
 title = "保存进攻分析到派生记忆"
 type = "tool_called"
-points = 10
+weight = 2
 tool = "derived_memory"
 status = "succeeded"
 arguments = { action = "save" }
@@ -127,7 +124,7 @@ arguments = { action = "save" }
 id = "memory-is-persisted"
 title = "派生记忆成功落盘"
 type = "sql"
-points = 10
+weight = 2
 database = "derived-memory"
 query = "SELECT COUNT(*) AS count FROM derived_memories WHERE status = 'fresh'"
 expected_rows = [{ count = 1 }]
@@ -136,7 +133,7 @@ expected_rows = [{ count = 1 }]
 id = "offense-analysis-quality"
 title = "最近五场进攻分析质量"
 type = "rubric"
-points = 15
+weight = 3
 criteria = "基于最近五场实际比赛和事件分析进攻问题，区分进攻表现与比赛失利的其他原因，形成有证据、可复用且适合保存的结论。"
 anchors = { "1" = "没有基于五场数据，泛泛归因、编造事实，或把所有失利简单归咎于进攻", "3" = "读取并概括了五场比赛，指出部分进攻现象，但跨场证据、因果边界或建议不够清楚", "5" = "准确综合五场比分与进攻事件，用多个跨场证据识别稳定问题，区分进攻与失分因素，并给出具体、克制、可复用的结论" }
 required_facts = [

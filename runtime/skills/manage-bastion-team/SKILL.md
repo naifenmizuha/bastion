@@ -8,6 +8,20 @@ description: "Query and manage Bastion's authoritative baseball team data throug
 Use `teamops` as the only authority for persisted team facts. Never inspect
 SQLite, run the CLI through a shell, or invent a command or flag.
 
+## Memory-first analytical reads
+
+Runtime may provide `<bastion_derived_memory_candidates>` before a turn. For a
+read-only analytical question that is directly covered by a candidate, call
+`derived_memory` with `action=read` and that candidate ID before loading CLI
+references or calling `teamops`. A fresh candidate has already had every source
+dependency checked by Runtime; do not re-run those reads merely to verify it.
+
+Fall back to the authoritative `teamops` workflow when no candidate covers the
+request, the user explicitly asks for a fresh re-check, the requested detail is
+outside the memory's conclusion or limitations, or a domain write/current-state
+precondition is involved. A derived memory never replaces the authoritative
+refresh required before a write.
+
 ## Two-layer workflow
 
 1. Always read the one relevant CLI capability reference before calling
@@ -61,6 +75,7 @@ include verification; do not repeat a verified read-back. On `USER_CANCELLED`,
 stop immediately. On timeout, abort, or failed verification, report uncertainty
 and refresh current state before a future overlapping write.
 
-Use `derived_memory` only for reusable conclusions supported by at least two
-distinct successful reads. Never use it instead of an authoritative refresh for
+Save with `derived_memory` only for reusable conclusions supported by at least
+two distinct successful reads. Do not create a duplicate memory when reusing an
+existing fresh conclusion. Never use it instead of an authoritative refresh for
 a write. Do not pass identity fields; Runtime supplies the trusted principal.

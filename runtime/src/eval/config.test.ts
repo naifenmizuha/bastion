@@ -66,7 +66,7 @@ prompt = "查询名单"
 id = "mentions-player"
 title = "提到球员"
 type = "response_contains"
-points = 30
+weight = 3
 value = "球员"
 [[cases.turns]]
 id = "explain"
@@ -75,14 +75,14 @@ prompt = "解释结论"
 id = "uses-teamops"
 title = "调用 TeamOps"
 type = "tool_called"
-points = 20
+weight = 2
 tool = "teamops"
 command_prefix = ["player", "list"]
 [[cases.expectations]]
 id = "clear"
 title = "表达清晰"
 type = "rubric"
-points = 20
+weight = 2
 criteria = "结论清楚"
 anchors = { "1" = "混乱", "3" = "基本清楚", "5" = "非常清楚" }
 required_facts = ["来自数据库"]
@@ -111,14 +111,14 @@ prompt = "x"
 [[cases.turns.expectations]]
 id = "tool"
 type = "tool_called"
-points = 70
+weight = 1
 tool = "teamops"
 command = ["game", "read"]
 command_prefix = ["game"]
 `, "bad-tool.toml"), /cannot define both command and command_prefix/);
 });
 
-test("evaluation TOML v2 rejects unsafe SQL and non-70 expectation totals", () => {
+test("evaluation TOML v2 rejects unsafe SQL without requiring a fixed weight total", () => {
   assert.throws(() => parseEvaluationConfig(`
 schema_version = 2
 name = "bad"
@@ -133,7 +133,7 @@ prompt = "x"
 [[cases.turns.expectations]]
 id = "write"
 type = "sql"
-points = 70
+weight = 1
 database = "teamops"
 query = "DELETE FROM players"
 expected_row_count = 0
@@ -158,7 +158,7 @@ prompt = "查询并记住"
 [[cases.sessions.turns.expectations]]
 id = "saved"
 type = "tool_called"
-points = 35
+weight = 2
 tool = "derived_memory"
 [[cases.sessions]]
 id = "recall"
@@ -167,13 +167,14 @@ id = "verify"
 prompt = "之前的结论是什么？"
 [[cases.sessions.turns.expectations]]
 id = "recalled"
-type = "response_contains"
-points = 35
-value = "结论"
+type = "tool_not_called"
+weight = 2
+tool = "teamops"
 `, "cross-session.toml");
   assert.equal(config.schemaVersion, 3);
   assert.deepEqual(config.prompts[0]?.sessions.map((session) => session.id), ["establish", "recall"]);
   assert.deepEqual(config.prompts[0]?.turns.map((turn) => turn.id), ["save", "verify"]);
+  assert.equal(config.prompts[0]?.sessions[1]?.turns[0]?.expectations[0]?.type, "tool_not_called");
 });
 
 test("evaluation TOML v3 rejects invalid session layouts", () => {
@@ -195,7 +196,7 @@ prompt = "x"
 [[cases.sessions.turns.expectations]]
 id = "all"
 type = "response_contains"
-points = 70
+weight = 1
 value = "x"
 `), "one-session.toml"), /at least two session/);
   assert.throws(() => parseEvaluationConfig(base(`

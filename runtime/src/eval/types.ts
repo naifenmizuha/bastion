@@ -52,7 +52,7 @@ export interface EvaluationTurn {
 interface ExpectationBase {
   id: string;
   title: string;
-  points: number;
+  weight: number;
 }
 
 export interface ResponseContainsExpectation extends ExpectationBase {
@@ -69,6 +69,15 @@ export interface ResponseRegexExpectation extends ExpectationBase {
 
 export interface ToolCalledExpectation extends ExpectationBase {
   type: "tool_called";
+  tool: string;
+  status?: ExecutionStepStatus;
+  arguments?: Record<string, unknown>;
+  command?: string[];
+  commandPrefix?: string[];
+}
+
+export interface ToolNotCalledExpectation extends ExpectationBase {
+  type: "tool_not_called";
   tool: string;
   status?: ExecutionStepStatus;
   arguments?: Record<string, unknown>;
@@ -97,13 +106,12 @@ export type EvaluationExpectation =
   | ResponseContainsExpectation
   | ResponseRegexExpectation
   | ToolCalledExpectation
+  | ToolNotCalledExpectation
   | SqlExpectation
   | RubricExpectation;
 
 export interface ScoringSettings {
   passScore: number;
-  expectationPoints: number;
-  qualityPoints: number;
 }
 
 export interface EvaluationConfig {
@@ -339,9 +347,9 @@ export interface ExpectationResult {
   turnId?: string;
   passed: boolean;
   score?: number;
-  maxPoints: number;
-  earnedPoints: number;
-  deductedPoints: number;
+  maxWeight: number;
+  earnedWeight: number;
+  deductedWeight: number;
   reason: string;
   expected?: unknown;
   actual?: unknown;

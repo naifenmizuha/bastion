@@ -1,16 +1,22 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
-import type { CliObservationLedger } from "./ledger.ts";
+import type { VerifiedReadLedger } from "./verified-read-ledger.ts";
 import type { DerivedMemoryStore } from "./store.ts";
 import type {
   ChangeEventSource,
   DerivedMemorySearchScope,
-  DerivedMemoryVisibility,
-  DerivedMemoryWithDependencies,
   PrincipalContext,
   SaveDerivedMemoryInput,
 } from "./types.ts";
 import type { FreshnessProvider } from "./freshness.ts";
+import {
+  canReadStaff,
+  freshMemoryCandidates,
+  readAccessible,
+  readAccessibleMemory,
+  searchAccessibleMemories,
+  validateMemoryFreshness,
+} from "./retrieval.ts";
 
 const MAX_CONCLUSION_LENGTH = 4_000;
 const MAX_LABEL_LENGTH = 128;
@@ -158,91 +164,10 @@ export interface DerivedMemoryToolDetails {
 
 export interface DerivedMemoryExtensionOptions {
   store: DerivedMemoryStore;
-  ledger: CliObservationLedger;
+  verifiedReads: VerifiedReadLedger;
   changeEvents: ChangeEventSource;
   freshness: FreshnessProvider;
   principal: PrincipalContext;
-}
-
-function changedSourceKeys(
-  saved: readonly { sourceKey: string; updatedAt: string }[],
-  current: readonly { sourceKey: string; updatedAt: string }[],
-): string[] {
-  const left = new Map(saved.map((entry) => [entry.sourceKey, entry.updatedAt]));
-  const right = new Map(current.map((entry) => [entry.sourceKey, entry.updatedAt]));
-  return [...new Set([...left.keys(), ...right.keys()])]
-    .filter((key) => left.get(key) !== right.get(key))
-    .sort();
-}
-
-function validateFreshness(
-  memory: DerivedMemoryWithDependencies,
-  options: DerivedMemoryExtensionOptions,
-): "fresh" | "stale" | "unknown" {
-  if (memory.status === "stale") return "stale";
-  try {
-    const changed: string[] = [];
-    for (const dependency of memory.dependencies) {
-      if (!dependency.sourceSnapshot) {
-        changed.push("legacy_missing_snapshot");
-        continue;
-      }
-      const current = options.freshness.snapshot({
-        args: dependency.command,
-        ...(dependency.input ? { input: dependency.input } : {}),
-      });
-      if (current.hash !== dependency.sourceSnapshot.hash) {
-        changed.push(...changedSourceKeys(
-          dependency.sourceSnapshot.sources,
-          current.sources,
-        ));
-      }
-    }
-    if (changed.length > 0) {
-      options.store.invalidateFromFreshness(
-        options.principal.authorityId,
-        memory.id,
-        [...new Set(changed)],
-      );
-      return "stale";
-    }
-    return "fresh";
-  } catch {
-    return "unknown";
-  }
-}
-
-function canReadStaff(principal: PrincipalContext): boolean {
-  return principal.role === "admin" || principal.role === "coach";
-}
-
-function accessibleScopes(principal: PrincipalContext): DerivedMemoryVisibility[] {
-  return canReadStaff(principal)
-    ? ["private", "staff", "team"]
-    : ["private", "team"];
-}
-
-function readForScope(
-  store: DerivedMemoryStore,
-  principal: PrincipalContext,
-  scope: DerivedMemoryVisibility,
-  id: string,
-): DerivedMemoryWithDependencies | undefined {
-  if (scope === "private") return store.readPrivate(id, principal);
-  if (scope === "staff") return store.readStaff(id, principal);
-  return store.readTeam(id, principal);
-}
-
-function readAccessible(
-  store: DerivedMemoryStore,
-  principal: PrincipalContext,
-  id: string,
-): DerivedMemoryWithDependencies | undefined {
-  for (const scope of accessibleScopes(principal)) {
-    const memory = readForScope(store, principal, scope, id);
-    if (memory) return memory;
-  }
-  return undefined;
 }
 
 function errorResult(
@@ -285,21 +210,46 @@ export function createDerivedMemoryExtension(
   options: DerivedMemoryExtensionOptions,
 ): ExtensionFactory {
   return (pi) => {
+    const retrieval = {
+      store: options.store,
+      freshness: options.freshness,
+      principal: options.principal,
+    };
     const unsubscribe = options.changeEvents.subscribe(() => {
       for (const memory of options.store.freshMemories(options.principal.authorityId)) {
-        validateFreshness(memory, options);
+        validateMemoryFreshness(memory, retrieval);
       }
     });
     pi.on("session_shutdown", () => {
       unsubscribe();
-      options.ledger.clear();
+      options.verifiedReads.clear();
+    });
+
+    pi.on("before_agent_start", (event) => {
+      const prompt = event.prompt.trim();
+      if (!prompt || prompt.startsWith("/")) return;
+      const candidates = freshMemoryCandidates(retrieval, prompt);
+      if (candidates.length === 0) return;
+      const catalog = candidates.map(({ relevance: _relevance, ...candidate }) => candidate);
+      return {
+        message: {
+          customType: "bastion-derived-memory-candidates",
+          display: false,
+          content: `<bastion_derived_memory_candidates>${JSON.stringify(catalog)}</bastion_derived_memory_candidates>\n` +
+            "These are bounded fresh derived-memory candidates selected for the current user request. " +
+            "They are not authoritative raw facts, but Runtime has already verified that their dependencies have not changed. " +
+            "For a read-only analytical question, if a candidate directly covers the request, call derived_memory read with its id and answer from the full conclusion; do not call teamops merely to re-check its dependencies. " +
+            "Use teamops only when no candidate is relevant, the user explicitly requests a fresh re-check, required facts are outside the candidate, or an authoritative write/current-state refresh is needed.",
+          details: { candidateIds: catalog.map((candidate) => candidate.id) },
+        },
+      };
     });
 
     pi.registerTool({
       name: "derived_memory",
       label: "Derived Memory",
       description:
-        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. Memories are private by default and may be explicitly published to staff or team scope. This is not authoritative data. Never rely on stale memories.",
+        "Save and retrieve reusable conclusions derived from at least two successful teamops reads. Runtime may suggest fresh candidates before a turn; read a directly relevant candidate before repeating its teamops dependencies. Memories are private by default and may be explicitly published to staff or team scope. This is not authoritative data. Never rely on stale memories.",
       promptSnippet:
         "Search, save, read, publish, withdraw, or explicitly forget dependency-backed derived conclusions",
       parameters: DerivedMemoryParameters,
@@ -312,7 +262,7 @@ export function createDerivedMemoryExtension(
           if (validationError) return result(validationError);
           let dependencies;
           try {
-            dependencies = options.ledger.resolveDependencies(
+            dependencies = options.verifiedReads.resolveDependencies(
               params.dependencies,
             );
             if (dependencies.length < 2) {
@@ -369,33 +319,8 @@ export function createDerivedMemoryExtension(
           if (requestedScope === "staff" && !canReadStaff(options.principal)) {
             return errorResult("search", "FORBIDDEN", "players cannot search staff memories");
           }
-          const scopes = requestedScope === "all"
-            ? accessibleScopes(options.principal)
-            : [requestedScope];
-          let unknownCount = 0;
-          const candidates = scopes.flatMap((scope) => {
-            if (scope === "private") return options.store.searchPrivate(options.principal, params);
-            if (scope === "staff") return options.store.searchStaff(options.principal, params);
-            return options.store.searchTeam(options.principal, params);
-          });
-          const validated = candidates.flatMap((memory) => {
-            const full = readForScope(
-              options.store,
-              options.principal,
-              memory.visibility,
-              memory.id,
-            )!;
-            const status = validateFreshness(full, options);
-            if (status === "unknown") unknownCount += 1;
-            if (status === "unknown" || (!params.includeStale && status === "stale")) return [];
-            return [{ ...memory, status }];
-          });
-          const uniqueMemories = [...new Map(
-            validated
-              .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
-              .map((memory) => [memory.id, memory]),
-          ).values()].slice(0, params.limit ?? 10);
-          const memories = uniqueMemories.map((memory) => ({
+          const searched = searchAccessibleMemories(retrieval, params);
+          const memories = searched.memories.map((memory) => ({
             id: memory.id,
             ownerUserId: memory.ownerUserId,
             visibility: memory.visibility,
@@ -416,16 +341,13 @@ export function createDerivedMemoryExtension(
             action: "search",
             data: {
               memories,
-              ...(unknownCount > 0 ? { unknownCount } : {}),
+              ...(searched.unknownCount > 0 ? { unknownCount: searched.unknownCount } : {}),
             },
           });
         }
 
         if (params.action === "read") {
-          const memory = readAccessible(options.store, options.principal, params.id);
-          const effectiveStatus = memory
-            ? validateFreshness(memory, options)
-            : undefined;
+          const { memory, status: effectiveStatus } = readAccessibleMemory(retrieval, params.id);
           return memory
             ? result({
                 kind: "derived_memory",

@@ -22,7 +22,7 @@ export function commandHash(params: TeamOpsParams): string {
   return createHash("sha256").update(normalizedCommand(params)).digest("hex");
 }
 
-export class CliObservationLedger {
+export class VerifiedReadLedger {
   readonly #reads = new Map<string, SuccessfulReadObservation>();
 
   record(

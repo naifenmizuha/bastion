@@ -496,7 +496,7 @@ async function runOneInDirectory(
     ];
     const expectationResults = options.config.schemaVersion >= 2
       ? [...deterministicResults, ...rubricExpectationResults({ rubrics: rubricScopes, review: base.review }), ...qualityResults(base.review)]
-      : qualityResults(base.review, 20);
+      : qualityResults(base.review);
     base.expectationResults = expectationResults;
     base.score = calculateScore(expectationResults, options.config.schemaVersion >= 2 ? options.config.scoring.passScore : 0);
     const checked = checkSummary(checks, prompt);

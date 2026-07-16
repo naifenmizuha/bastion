@@ -1,0 +1,146 @@
+schema_version = 3
+name = "Athletics 2025 跨会话长期记忆评测"
+description = "验证 Runtime 重建后不继承聊天历史，但能够检索前一会话保存的有依据结论。"
+runs = 1
+timeout_seconds = 180
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-pro"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[[cases]]
+id = "why-attack-so-weak"
+title = "分析为什么进攻这么弱，并保存结论到长期记忆"
+tags = ["read", "memory", "cross-session"]
+write_permission = "allow"
+
+[[cases.sessions]]
+id = "save"
+
+[[cases.sessions.turns]]
+id = "analyze-and-remember"
+prompt = "我们最近五场比赛进攻为什么这么弱？分析原因并且记下来"
+
+[[cases.sessions.turns.expectations]]
+id = "generates-analysis-in-batch"
+title = "批量生成比赛分析"
+type = "tool_called"
+weight = 2
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "generate-batch"]
+
+[[cases.sessions.turns.expectations]]
+id = "reads-game-162-analysis"
+title = "读取比赛 162 的分析"
+type = "tool_called"
+weight = 1
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "162"]
+
+[[cases.sessions.turns.expectations]]
+id = "reads-game-161-analysis"
+title = "读取比赛 161 的分析"
+type = "tool_called"
+weight = 1
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "161"]
+
+[[cases.sessions.turns.expectations]]
+id = "reads-game-160-analysis"
+title = "读取比赛 160 的分析"
+type = "tool_called"
+weight = 1
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "160"]
+
+[[cases.sessions.turns.expectations]]
+id = "reads-game-159-analysis"
+title = "读取比赛 159 的分析"
+type = "tool_called"
+weight = 1
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "159"]
+
+[[cases.sessions.turns.expectations]]
+id = "reads-game-158-analysis"
+title = "读取比赛 158 的分析"
+type = "tool_called"
+weight = 1
+tool = "teamops"
+status = "succeeded"
+command = ["game", "analysis", "read", "--game-id", "158"]
+
+[[cases.sessions.turns.expectations]]
+id = "saves-first-session-memory"
+title = "第一轮写入派生记忆"
+type = "tool_called"
+weight = 2
+tool = "derived_memory"
+status = "succeeded"
+arguments = { action = "save" }
+
+
+[[cases.sessions]]
+id = "recall"
+
+[[cases.sessions.turns]]
+id = "recall-why-attack-so-weak"
+prompt = "我们最近五场比赛进攻为什么这么弱？"
+
+[[cases.sessions.turns.expectations]]
+id = "reads-second-session-memory"
+title = "第二轮读取已有派生记忆"
+type = "tool_called"
+weight = 2
+tool = "derived_memory"
+status = "succeeded"
+arguments = { action = "read" }
+
+[[cases.sessions.turns.expectations]]
+id = "does-not-reread-domain-data"
+title = "第二轮不再读取领域数据"
+type = "tool_not_called"
+weight = 2
+tool = "teamops"
+
+[[cases.expectations]]
+id = "does-not-duplicate-memory"
+title = "复用时不重复创建派生记忆"
+type = "sql"
+weight = 2
+database = "derived-memory"
+query = "SELECT COUNT(*) AS count FROM derived_memories"
+expected_rows = [{ count = 1 }]
+
+[[cases.expectations]]
+id = "final-answer-quality"
+title = "最终进攻分析质量"
+type = "rubric"
+weight = 3
+criteria = "仅根据模型第二轮的最终回答，评价其是否准确、清楚地概括最近五场比赛的进攻问题，并给出有边界、可复用的结论。"
+anchors = { "1" = "回答泛泛而谈、明显编造，或没有形成可理解的进攻分析", "3" = "给出基本结论，但证据、因果边界或表达完整性不足", "5" = "准确综合关键事实与跨场证据，清楚区分进攻问题和其他失利因素，结论克制且可复用" }
+required_facts = [
+  "最近五场比赛是 ID 162、161、160、159、158",
+  "最近五场战绩为 2 胜 3 负",
+  "五场共得到 19 分",
+  "引用至少两个跨场进攻证据",
+  "说明部分失利不能只归因于进攻"
+]
+forbidden = [
+  "编造不存在的球员、事件或统计",
+  "只凭最终比分断言具体进攻技术问题",
+  "把高失分比赛的失利全部归咎于进攻"
+]
+reference = "理想回答应直接复用第一轮已保存的有依据结论，概括五场样本、战绩与得分，再用跨场证据说明稳定的进攻问题；对证据不足的归因保留意见，并区分进攻问题与失分因素。"

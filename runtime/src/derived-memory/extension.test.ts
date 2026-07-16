@@ -9,7 +9,7 @@ import {
   DerivedMemoryParameters,
   type DerivedMemoryToolDetails,
 } from "./extension.ts";
-import { CliObservationLedger } from "./ledger.ts";
+import { VerifiedReadLedger } from "./verified-read-ledger.ts";
 import { DerivedMemoryStore } from "./store.ts";
 import { sourceSnapshot } from "./freshness.ts";
 import type { PrincipalContext } from "./types.ts";
@@ -39,7 +39,7 @@ function harness(options: {
     directories.push(directory);
     store = new DerivedMemoryStore(join(directory, "memory.sqlite"));
   }
-  const ledger = new CliObservationLedger();
+  const verifiedReads = new VerifiedReadLedger();
   const changeEvents = new LocalChangeEventBus();
   let tool:
     | {
@@ -52,8 +52,10 @@ function harness(options: {
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const versions = new Map<string, string>();
   let freshnessFailure = false;
+  let snapshotCount = 0;
   const freshness = {
     snapshot(params: { args: string[] }) {
+      snapshotCount += 1;
       if (freshnessFailure) throw new Error("database unavailable");
       const id = params.args.at(-1) ?? "unknown";
       return sourceSnapshot([{
@@ -63,10 +65,11 @@ function harness(options: {
     },
     set(id: string, version: string) { versions.set(id, version); },
     fail() { freshnessFailure = true; },
+    count() { return snapshotCount; },
   };
   createDerivedMemoryExtension({
     store,
-    ledger,
+    verifiedReads,
     changeEvents,
     freshness,
     principal: options.principal ?? alice,
@@ -79,12 +82,12 @@ function harness(options: {
     },
   } as never);
   assert.ok(tool);
-  return { store, ledger, changeEvents, freshness, tool, handlers };
+  return { store, verifiedReads, changeEvents, freshness, tool, handlers };
 }
 
-function recordReads(ledger: CliObservationLedger, bus: LocalChangeEventBus) {
+function recordReads(verifiedReads: VerifiedReadLedger, bus: LocalChangeEventBus) {
   for (const gameId of ["1", "2"]) {
-    ledger.record(
+    verifiedReads.record(
       `read-${gameId}`,
       {
         args: ["game", "analysis", "read", "--game-id", gameId],
@@ -117,8 +120,8 @@ describe("derived_memory extension", () => {
   });
 
   it("saves from verified reads, searches, reads, and forgets", async () => {
-    const { store, ledger, changeEvents, freshness, tool } = harness();
-    recordReads(ledger, changeEvents);
+    const { store, verifiedReads, changeEvents, freshness, tool } = harness();
+    recordReads(verifiedReads, changeEvents);
     const saved = await tool.execute("memory-1", {
       action: "save",
       kind: "recent_offense",
@@ -167,6 +170,44 @@ describe("derived_memory extension", () => {
     store.close();
   });
 
+  it("injects a hidden bounded fresh candidate catalog before non-command turns", async () => {
+    const { store, verifiedReads, changeEvents, freshness, tool, handlers } = harness();
+    recordReads(verifiedReads, changeEvents);
+    const conclusion = `${"最近五场比赛进攻疲软。".repeat(50)}FULL_END`;
+    const saved = await tool.execute("memory-1", {
+      action: "save",
+      kind: "recent_offense",
+      subjectKeys: ["team:bastion"],
+      topics: ["offense"],
+      conclusion,
+      limitations: ["Five-game sample."],
+      dependencies: [
+        { args: ["game", "analysis", "read", "--game-id", "1"] },
+        { args: ["game", "analysis", "read", "--game-id", "2"] },
+      ],
+    });
+    const id = (saved.details.data as { id: string }).id;
+    const handler = handlers.get("before_agent_start");
+    assert.ok(handler);
+
+    const injected = handler({
+      prompt: "我们最近五场比赛进攻为什么这么弱？",
+    }) as { message: { customType: string; content: string; display: boolean; details: { candidateIds: string[] } } };
+    assert.equal(injected.message.customType, "bastion-derived-memory-candidates");
+    assert.equal(injected.message.display, false);
+    assert.deepEqual(injected.message.details.candidateIds, [id]);
+    assert.match(injected.message.content, /derived_memory read/);
+    assert.match(injected.message.content, /do not call teamops/);
+    assert.match(injected.message.content, /explicitly requests a fresh re-check/);
+    assert.match(injected.message.content, /authoritative write/);
+    assert.doesNotMatch(injected.message.content, /FULL_END/);
+    const read = await tool.execute("memory-read", { action: "read", id });
+    assert.equal(read.details.ok, true);
+    assert.equal(freshness.count(), 4, "candidate injection and full read must each revalidate two dependencies");
+    assert.equal(handler({ prompt: "/dev" }), undefined);
+    store.close();
+  });
+
   it("rejects dependencies not observed in the current session", async () => {
     const { store, tool } = harness();
     const saved = await tool.execute("memory-1", {
@@ -187,8 +228,8 @@ describe("derived_memory extension", () => {
   });
 
   it("hides a memory from default search after a change event", async () => {
-    const { store, ledger, changeEvents, freshness, tool } = harness();
-    recordReads(ledger, changeEvents);
+    const { store, verifiedReads, changeEvents, freshness, tool } = harness();
+    recordReads(verifiedReads, changeEvents);
     const saved = await tool.execute("memory-1", {
       action: "save",
       kind: "recent_offense",
@@ -231,8 +272,8 @@ describe("derived_memory extension", () => {
   });
 
   it("fails closed with unknown without permanently staling the memory", async () => {
-    const { store, ledger, changeEvents, freshness, tool } = harness();
-    recordReads(ledger, changeEvents);
+    const { store, verifiedReads, changeEvents, freshness, tool } = harness();
+    recordReads(verifiedReads, changeEvents);
     const saved = await tool.execute("memory-1", {
       action: "save",
       kind: "recent_offense",
@@ -268,7 +309,7 @@ describe("derived_memory extension", () => {
       playerId: "player-bob",
     };
     const bobHarness = harness({ store, principal: bob });
-    recordReads(aliceHarness.ledger, aliceHarness.changeEvents);
+    recordReads(aliceHarness.verifiedReads, aliceHarness.changeEvents);
     const saved = await aliceHarness.tool.execute("save", {
       action: "save",
       kind: "recent_offense",
@@ -347,7 +388,7 @@ describe("derived_memory extension", () => {
       store,
       principal: { ...alice, userId: "admin", role: "admin" },
     });
-    recordReads(ownerHarness.ledger, ownerHarness.changeEvents);
+    recordReads(ownerHarness.verifiedReads, ownerHarness.changeEvents);
     const saved = await ownerHarness.tool.execute("save", {
       action: "save",
       kind: "player_risk",

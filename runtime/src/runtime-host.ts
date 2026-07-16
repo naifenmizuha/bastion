@@ -39,7 +39,7 @@ import { createContextProjectionExtension } from "./context-projection/extension
 import { createDeveloperMode } from "./developer-mode/extension.ts";
 import { LocalChangeEventBus } from "./derived-memory/events.ts";
 import { createDerivedMemoryExtension } from "./derived-memory/extension.ts";
-import { CliObservationLedger } from "./derived-memory/ledger.ts";
+import { VerifiedReadLedger } from "./derived-memory/verified-read-ledger.ts";
 import { DerivedMemoryStore } from "./derived-memory/store.ts";
 import { SqliteFreshnessProvider } from "./derived-memory/freshness.ts";
 import type {
@@ -211,17 +211,17 @@ export async function createBastionRuntimeHost(
     sessionManager,
     sessionStartEvent,
   }) => {
-    const observationLedger = new CliObservationLedger();
+    const verifiedReads = new VerifiedReadLedger();
     const teamOpsExtension = createTeamOpsExtension(cliOptions, {
       confirmWrite: options.confirmWrite,
       freshness,
       onResult: ({ toolCallId, params, details }) => {
-        observationLedger.record(toolCallId, params, details, changeEvents);
+        verifiedReads.record(toolCallId, params, details, changeEvents);
       },
     });
     const derivedMemoryExtension = createDerivedMemoryExtension({
       store: derivedMemoryStore,
-      ledger: observationLedger,
+      verifiedReads,
       changeEvents,
       freshness,
       principal,

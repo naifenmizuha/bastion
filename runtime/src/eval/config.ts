@@ -95,12 +95,15 @@ function objectValue(value: unknown, path: string): Record<string, unknown> {
 
 function parseExpectation(raw: unknown, path: string): EvaluationExpectation {
   const source = table(raw, path);
-  const common = ["id", "title", "type", "points"];
+  const common = ["id", "title", "type", "weight", "points"];
   const type = stringValue(source.type, `${path}.type`, 64);
+  if (source.weight !== undefined && source.points !== undefined) throw new Error(`${path} cannot define both weight and points`);
+  const rawWeight = source.weight ?? source.points;
+  if (rawWeight === undefined) throw new Error(`${path}.weight is required`);
   const base = {
     id: stringValue(source.id, `${path}.id`, 64),
     title: optionalString(source.title, `${path}.title`, 256) ?? String(source.id),
-    points: numberValue(source.points, `${path}.points`, 0.01, 70),
+    weight: numberValue(rawWeight, source.weight === undefined ? `${path}.points` : `${path}.weight`, 0.01, 1_000_000),
   };
   if (type === "response_contains") {
     keys(source, [...common, "value", "case_sensitive"], path);
@@ -117,7 +120,7 @@ function parseExpectation(raw: unknown, path: string): EvaluationExpectation {
     try { new RegExp(pattern, flags); } catch (error) { throw new Error(`${path}.pattern is invalid: ${error instanceof Error ? error.message : String(error)}`); }
     return { ...base, type, pattern, flags };
   }
-  if (type === "tool_called") {
+  if (type === "tool_called" || type === "tool_not_called") {
     keys(source, [...common, "tool", "status", "arguments", "command", "command_prefix"], path);
     const status = source.status;
     if (status !== undefined && !["running", "succeeded", "failed", "cancelled"].includes(String(status))) {
@@ -320,8 +323,6 @@ function parseCases(value: unknown, schemaVersion: 2 | 3): PromptCase[] {
       if (expectationIds.has(item.id)) throw new Error(`duplicate expectation id in ${path}: ${item.id}`);
       expectationIds.add(item.id);
     }
-    const points = allExpectations.reduce((sum, item) => sum + item.points, 0);
-    if (Math.abs(points - 70) > 1e-9) throw new Error(`${path} expectation points must total 70 (got ${points})`);
     const writePermission = source.write_permission ?? "allow";
     if (writePermission !== "allow" && writePermission !== "deny") throw new Error(`${path}.write_permission must be allow or deny`);
     const runs = source.runs === undefined ? undefined : integerValue(source.runs, `${path}.runs`, 1, 10);
@@ -379,8 +380,6 @@ export function parseEvaluationConfig(
       passScore: source.schema_version >= 2
         ? numberValue(scoringSource.pass_score ?? 80, "scoring.pass_score", 0, 100)
         : passRules.average * 20,
-      expectationPoints: source.schema_version >= 2 ? 70 : 0,
-      qualityPoints: source.schema_version >= 2 ? 30 : 100,
     },
     prompts: source.schema_version === 2 || source.schema_version === 3
       ? parseCases(source.cases, source.schema_version)

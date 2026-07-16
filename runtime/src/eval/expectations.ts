@@ -41,9 +41,9 @@ function result(expectation: EvaluationExpectation, scope: Scope, passed: boolea
     scope: scope.kind,
     ...(scope.turnId ? { turnId: scope.turnId } : {}),
     passed,
-    maxPoints: expectation.points,
-    earnedPoints: passed ? expectation.points : 0,
-    deductedPoints: passed ? 0 : expectation.points,
+    maxWeight: expectation.weight,
+    earnedWeight: passed ? expectation.weight : 0,
+    deductedWeight: passed ? 0 : expectation.weight,
     reason,
     ...(expected === undefined ? {} : { expected }),
     ...(actual === undefined ? {} : { actual }),
@@ -77,7 +77,7 @@ export function evaluateDeterministicExpectation(options: {
     const passed = new RegExp(expectation.pattern, expectation.flags).test(scope.answer);
     return result(expectation, scope, passed, passed ? "回答匹配预期正则" : "回答未匹配预期正则", `/${expectation.pattern}/${expectation.flags}`, scope.answer, scope.steps.filter((step) => step.kind === "assistant_answer").map((step) => step.stepId));
   }
-  if (expectation.type === "tool_called") {
+  if (expectation.type === "tool_called" || expectation.type === "tool_not_called") {
     const candidates = scope.steps.filter((step) => step.kind === "tool" && step.name === expectation.tool);
     const matched = candidates.find((step) =>
       (expectation.status === undefined || step.status === expectation.status) &&
@@ -87,6 +87,9 @@ export function evaluateDeterministicExpectation(options: {
     );
     const expected = { tool: expectation.tool, status: expectation.status, arguments: expectation.arguments, command: expectation.command, commandPrefix: expectation.commandPrefix };
     const actual = candidates.map((step) => ({ stepId: step.stepId, status: step.status, arguments: step.input, command: commandFrom(step) }));
+    if (expectation.type === "tool_not_called") {
+      return result(expectation, scope, !matched, matched ? "找到了禁止的工具调用" : "未找到禁止的工具调用", expected, actual, candidates.map((step) => step.stepId));
+    }
     return result(expectation, scope, Boolean(matched), matched ? "找到符合预期的工具调用" : "未找到符合预期的工具调用", expected, actual, candidates.map((step) => step.stepId));
   }
   const db = new DatabaseSync(options.databasePaths[expectation.database], { readOnly: true });
@@ -118,8 +121,8 @@ export function evaluateDeterministicExpectation(options: {
   }
 }
 
-function scaled(score: number, points: number): number {
-  return Math.round((((score - 1) / 4) * points) * 100) / 100;
+function scaled(score: number, weight: number): number {
+  return Math.round((((score - 1) / 4) * weight) * 100) / 100;
 }
 
 export function rubricExpectationResults(options: {
@@ -130,7 +133,7 @@ export function rubricExpectationResults(options: {
   return options.rubrics.map(({ expectation, scope }) => {
     const reviewed = byId.get(expectation.id);
     const score = reviewed?.score ?? 1;
-    const earned = reviewed ? scaled(score, expectation.points) : 0;
+    const earned = reviewed ? scaled(score, expectation.weight) : 0;
     return {
       expectationId: expectation.id,
       title: expectation.title,
@@ -139,9 +142,9 @@ export function rubricExpectationResults(options: {
       ...(scope.turnId ? { turnId: scope.turnId } : {}),
       passed: score >= 3,
       score,
-      maxPoints: expectation.points,
-      earnedPoints: earned,
-      deductedPoints: Math.round((expectation.points - earned) * 100) / 100,
+      maxWeight: expectation.weight,
+      earnedWeight: earned,
+      deductedWeight: Math.round((expectation.weight - earned) * 100) / 100,
       reason: reviewed?.reason ?? "Reviewer 未返回该 rubric 的评分",
       expected: { criteria: expectation.criteria, anchors: expectation.anchors, requiredFacts: expectation.requiredFacts, forbidden: expectation.forbidden, reference: expectation.reference },
       actual: { answer: scope.answer, evidence: reviewed?.evidence ?? "" },
@@ -152,10 +155,10 @@ export function rubricExpectationResults(options: {
 
 const QUALITY_KEYS = ["relevance", "usefulness", "groundedness", "databaseCorrectness", "executionQuality"] as const;
 
-export function qualityResults(review: QualityReview | undefined, pointsPerDimension = 6): ExpectationResult[] {
+export function qualityResults(review: QualityReview | undefined, weightPerDimension = 1): ExpectationResult[] {
   return QUALITY_KEYS.map((key) => {
     const score = review?.scores[key] ?? 1;
-    const earned = review ? scaled(score, pointsPerDimension) : 0;
+    const earned = review ? scaled(score, weightPerDimension) : 0;
     const detail = review?.scoreReasons?.[key];
     return {
       expectationId: `quality.${key}`,
@@ -164,9 +167,9 @@ export function qualityResults(review: QualityReview | undefined, pointsPerDimen
       scope: "quality",
       passed: score >= 3,
       score,
-      maxPoints: pointsPerDimension,
-      earnedPoints: earned,
-      deductedPoints: Math.round((pointsPerDimension - earned) * 100) / 100,
+      maxWeight: weightPerDimension,
+      earnedWeight: earned,
+      deductedWeight: Math.round((weightPerDimension - earned) * 100) / 100,
       reason: detail?.reason ?? review?.summary ?? "没有质量评审结果",
       actual: detail?.evidence,
       evidenceStepIds: [],
@@ -175,12 +178,15 @@ export function qualityResults(review: QualityReview | undefined, pointsPerDimen
 }
 
 export function calculateScore(results: ExpectationResult[], passScore: number): RunScore {
-  const sum = (items: ExpectationResult[]) => Math.round(items.reduce((total, item) => total + item.earnedPoints, 0) * 100) / 100;
+  const maximumWeight = results.reduce((total, item) => total + item.maxWeight, 0);
+  const normalized = (items: ExpectationResult[]) => maximumWeight === 0
+    ? 0
+    : Math.round((items.reduce((total, item) => total + item.earnedWeight, 0) / maximumWeight) * 10_000) / 100;
   return {
-    programmatic: sum(results.filter((item) => !item.type.startsWith("quality.") && item.type !== "rubric")),
-    creative: sum(results.filter((item) => item.type === "rubric")),
-    quality: sum(results.filter((item) => item.type.startsWith("quality."))),
-    total: sum(results),
+    programmatic: normalized(results.filter((item) => !item.type.startsWith("quality.") && item.type !== "rubric")),
+    creative: normalized(results.filter((item) => item.type === "rubric")),
+    quality: normalized(results.filter((item) => item.type.startsWith("quality."))),
+    total: normalized(results),
     maximum: 100,
     passScore,
   };

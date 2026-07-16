@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { LocalChangeEventBus } from "./events.ts";
-import { CliObservationLedger } from "./ledger.ts";
+import { VerifiedReadLedger } from "./verified-read-ledger.ts";
 import { sourceSnapshot } from "./freshness.ts";
 
-describe("CLI observation ledger", () => {
+describe("verified TeamOps read ledger", () => {
   it("resolves exact successful reads and rejects duplicates or unknown commands", () => {
-    const ledger = new CliObservationLedger();
+    const verifiedReads = new VerifiedReadLedger();
     const events = new LocalChangeEventBus();
-    ledger.record(
+    verifiedReads.record(
       "read-1",
       { args: ["game", "read", "--id", "1"] },
       {
@@ -21,7 +21,7 @@ describe("CLI observation ledger", () => {
       events,
       10,
     );
-    ledger.record(
+    verifiedReads.record(
       "read-2",
       { args: ["game", "analysis", "read", "--game-id", "1"] },
       {
@@ -36,7 +36,7 @@ describe("CLI observation ledger", () => {
     );
 
     assert.equal(
-      ledger.resolveDependencies([
+      verifiedReads.resolveDependencies([
         { args: ["game", "read", "--id", "1"] },
         { args: ["game", "analysis", "read", "--game-id", "1"] },
       ]).length,
@@ -44,7 +44,7 @@ describe("CLI observation ledger", () => {
     );
     assert.throws(
       () =>
-        ledger.resolveDependencies([
+        verifiedReads.resolveDependencies([
           { args: ["game", "read", "--id", "1"] },
           { args: ["game", "read", "--id", "1"] },
         ]),
@@ -52,7 +52,7 @@ describe("CLI observation ledger", () => {
     );
     assert.throws(
       () =>
-        ledger.resolveDependencies([
+        verifiedReads.resolveDependencies([
           { args: ["game", "read", "--id", "2"] },
         ]),
       /UNOBSERVED_DEPENDENCY/,
@@ -60,12 +60,12 @@ describe("CLI observation ledger", () => {
   });
 
   it("publishes domain changes only for successful writes", () => {
-    const ledger = new CliObservationLedger();
+    const verifiedReads = new VerifiedReadLedger();
     const events = new LocalChangeEventBus();
     const received: string[][] = [];
     events.subscribe((event) => received.push(event.topics));
 
-    ledger.record(
+    verifiedReads.record(
       "write-1",
       { args: ["game", "score", "set"], input: { game_id: 1 } },
       {
@@ -77,7 +77,7 @@ describe("CLI observation ledger", () => {
       events,
       20,
     );
-    ledger.record(
+    verifiedReads.record(
       "write-2",
       { args: ["lineup", "accept", "--id", "2"] },
       {

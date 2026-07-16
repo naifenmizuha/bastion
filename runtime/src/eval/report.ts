@@ -31,7 +31,7 @@ function compact(value: unknown): string {
 }
 
 function resultDetails(result: RunResult): string {
-  const deductions = result.expectationResults.filter((item) => item.deductedPoints > 0);
+  const deductions = result.expectationResults.filter((item) => item.deductedWeight > 0);
   const gates = result.checks.filter((item) => !item.passed && (item.code.startsWith("database.") || item.code.startsWith("teamops.")));
   return [
     `### ${result.caseId}（第 ${result.repetition} 次）— ${result.score.total.toFixed(1)}/100`,
@@ -42,13 +42,13 @@ function resultDetails(result: RunResult): string {
       ...session.turns.map((turn) => `  - 轮次 \`${turn.turnId}\`：${turn.prompt} → ${turn.finalAnswer || "（无回答）"}`),
     ]),
     "",
-    "| 评分项 | 范围 | 得分 | 扣分 | 原因 |",
+    "| 评分项 | 范围 | 权重完成度 | 损失权重 | 原因 |",
     "| --- | --- | ---: | ---: | --- |",
-    ...result.expectationResults.map((item) => `| ${item.title.replaceAll("|", "\\|")} | ${item.turnId ?? item.scope} | ${item.earnedPoints.toFixed(1)}/${item.maxPoints.toFixed(1)} | -${item.deductedPoints.toFixed(1)} | ${item.reason.replaceAll("|", "\\|").replaceAll("\n", " ")} |`),
+    ...result.expectationResults.map((item) => `| ${item.title.replaceAll("|", "\\|")} | ${item.turnId ?? item.scope} | ${item.earnedWeight.toFixed(1)}/${item.maxWeight.toFixed(1)} | -${item.deductedWeight.toFixed(1)} | ${item.reason.replaceAll("|", "\\|").replaceAll("\n", " ")} |`),
     "",
     "#### 扣分原因",
     "",
-    ...(deductions.length ? deductions.map((item) => `- **-${item.deductedPoints.toFixed(1)} ${item.title}**：${item.reason}；expected=${compact(item.expected)}；actual=${compact(item.actual)}`) : ["- 无扣分。"]),
+    ...(deductions.length ? deductions.map((item) => `- **-${item.deductedWeight.toFixed(1)} 权重 ${item.title}**：${item.reason}；expected=${compact(item.expected)}；actual=${compact(item.actual)}`) : ["- 无扣分。"]),
     ...(gates.length ? ["", "#### 强制失败（不计入扣分）", "", ...gates.map((item) => `- ${item.title}：${item.message}`)] : []),
     "",
   ].join("\n");
@@ -98,7 +98,7 @@ export function renderHtml(summary: SuiteSummary, results: RunResult[]): string 
       : 0;
     return `<tr><td>${escape(result.caseId)}</td><td>${result.repetition}</td><td>${escape(result.status)}</td><td>${result.score.total.toFixed(1)}/100</td><td>${average.toFixed(1)}</td><td>${result.agentUsage.total}</td><td>${result.reviewerUsage?.total ?? 0}</td></tr>`;
   }).join("\n");
-  const details = results.map((result) => `<section><h3>${escape(result.caseId)}（第 ${result.repetition} 次）— ${result.score.total.toFixed(1)}/100</h3><p>程序性 ${result.score.programmatic.toFixed(1)}；创作性 ${result.score.creative.toFixed(1)}；通用质量 ${result.score.quality.toFixed(1)}</p><h4>会话</h4>${result.sessions.map((session) => `<div><strong>${escape(session.sessionId)}</strong>（Runtime ${escape(session.runtimeSessionId ?? "未创建")}）：${escape(session.status)}，${session.durationMs} ms，${session.agentUsage.total} tokens<ul>${session.turns.map((turn) => `<li>${escape(turn.turnId)}：${escape(turn.prompt)} → ${escape(turn.finalAnswer || "（无回答）")}</li>`).join("")}</ul></div>`).join("")}<table><thead><tr><th>评分项</th><th>范围</th><th>得分</th><th>扣分</th><th>原因</th></tr></thead><tbody>${result.expectationResults.map((item) => `<tr><td>${escape(item.title)}</td><td>${escape(item.turnId ?? item.scope)}</td><td>${item.earnedPoints.toFixed(1)}/${item.maxPoints.toFixed(1)}</td><td>-${item.deductedPoints.toFixed(1)}</td><td>${escape(item.reason)}</td></tr>`).join("")}</tbody></table><h4>扣分原因</h4>${result.expectationResults.filter((item) => item.deductedPoints > 0).map((item) => `<p class="bad">-${item.deductedPoints.toFixed(1)} ${escape(item.title)}：${escape(item.reason)}</p>`).join("") || "<p>无扣分。</p>"}</section>`).join("");
+  const details = results.map((result) => `<section><h3>${escape(result.caseId)}（第 ${result.repetition} 次）— ${result.score.total.toFixed(1)}/100</h3><p>程序性 ${result.score.programmatic.toFixed(1)}；创作性 ${result.score.creative.toFixed(1)}；通用质量 ${result.score.quality.toFixed(1)}</p><h4>会话</h4>${result.sessions.map((session) => `<div><strong>${escape(session.sessionId)}</strong>（Runtime ${escape(session.runtimeSessionId ?? "未创建")}）：${escape(session.status)}，${session.durationMs} ms，${session.agentUsage.total} tokens<ul>${session.turns.map((turn) => `<li>${escape(turn.turnId)}：${escape(turn.prompt)} → ${escape(turn.finalAnswer || "（无回答）")}</li>`).join("")}</ul></div>`).join("")}<table><thead><tr><th>评分项</th><th>范围</th><th>权重完成度</th><th>损失权重</th><th>原因</th></tr></thead><tbody>${result.expectationResults.map((item) => `<tr><td>${escape(item.title)}</td><td>${escape(item.turnId ?? item.scope)}</td><td>${item.earnedWeight.toFixed(1)}/${item.maxWeight.toFixed(1)}</td><td>-${item.deductedWeight.toFixed(1)}</td><td>${escape(item.reason)}</td></tr>`).join("")}</tbody></table><h4>扣分原因</h4>${result.expectationResults.filter((item) => item.deductedWeight > 0).map((item) => `<p class="bad">-${item.deductedWeight.toFixed(1)} 权重 ${escape(item.title)}：${escape(item.reason)}</p>`).join("") || "<p>无扣分。</p>"}</section>`).join("");
   return `<!doctype html><meta charset="utf-8"><title>Bastion Eval: ${escape(summary.name)}</title><style>body{font:15px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#1f2937}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d1d5db;padding:8px;text-align:left}th{background:#f3f4f6}.ok{color:#15803d}.bad{color:#b91c1c}pre{white-space:pre-wrap}section{margin:32px 0}</style><h1>Bastion Agent 评测报告：${escape(summary.name)}</h1><p>总运行 ${summary.total}，通过 ${summary.passed}，失败 ${summary.failed}，未完成 ${summary.notCompleted}；通过率 ${(summary.passRate * 100).toFixed(1)}%；平均分 ${summary.averageScore.toFixed(1)}/100。</p><p>安全规则：<span class="${summary.safetyPassed ? "ok" : "bad"}">${summary.safetyPassed ? "通过" : "失败"}</span>；质量规则：<span class="${summary.qualityPassed ? "ok" : "bad"}">${summary.qualityPassed ? "通过" : "失败"}</span>。</p><table><thead><tr><th>用例</th><th>次数</th><th>状态</th><th>总分</th><th>质量均分</th><th>Agent tokens</th><th>评审 tokens</th></tr></thead><tbody>${rows}</tbody></table><h2>得分详情与扣分原因</h2>${details}<h2>原始数据</h2><pre>${escape(json({ summary, results }))}</pre>`;
 }
 

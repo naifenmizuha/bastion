@@ -29,7 +29,7 @@ test("evaluation runner writes a structured passed run with a fake session", asy
       minimumCasePassRate: 1,
       minimumSuitePassRate: 1,
     },
-    scoring: { passScore: 0, expectationPoints: 0, qualityPoints: 100 },
+    scoring: { passScore: 0 },
     prompts: [{ id: "fake-read", title: "fake", tags: ["test"], text: "查询名单", turns: [{ id: "turn-1", prompt: "查询名单", expectations: [] }], sessions: [{ id: "session-1", turns: [{ id: "turn-1", prompt: "查询名单", expectations: [] }] }], expectations: [], writePermission: "deny" }],
     sourcePath: "fake.toml",
   };
@@ -111,23 +111,23 @@ test("evaluation runner executes v2 turns in one session and scores expectations
     agent: { thinking: "low" },
     reviewer: { provider: "fake", model: "reviewer" },
     passRules: { relevance: 4, usefulness: 4, groundedness: 4, databaseCorrectness: 4, executionQuality: 3, average: 4, minimumCasePassRate: 1, minimumSuitePassRate: 1 },
-    scoring: { passScore: 80, expectationPoints: 70, qualityPoints: 30 },
+    scoring: { passScore: 80 },
     prompts: [{
       id: "multi", title: "multi", tags: ["test"], text: "查询名单", writePermission: "deny",
       turns: [
-        { id: "lookup", prompt: "查询名单", expectations: [{ id: "answer", title: "故意失败的中间预期", type: "response_contains", points: 20, value: "不存在", caseSensitive: false }] },
-        { id: "followup", prompt: "说明来源", expectations: [{ id: "tool", title: "工具", type: "tool_called", points: 20, tool: "teamops", command: ["player", "list"] }] },
+        { id: "lookup", prompt: "查询名单", expectations: [{ id: "answer", title: "故意失败的中间预期", type: "response_contains", weight: 2, value: "不存在", caseSensitive: false }] },
+        { id: "followup", prompt: "说明来源", expectations: [{ id: "tool", title: "工具", type: "tool_called", weight: 2, tool: "teamops", command: ["player", "list"] }] },
       ],
       sessions: [{
         id: "session-1",
         turns: [
-          { id: "lookup", prompt: "查询名单", expectations: [{ id: "answer", title: "故意失败的中间预期", type: "response_contains", points: 20, value: "不存在", caseSensitive: false }] },
-          { id: "followup", prompt: "说明来源", expectations: [{ id: "tool", title: "工具", type: "tool_called", points: 20, tool: "teamops", command: ["player", "list"] }] },
+          { id: "lookup", prompt: "查询名单", expectations: [{ id: "answer", title: "故意失败的中间预期", type: "response_contains", weight: 2, value: "不存在", caseSensitive: false }] },
+          { id: "followup", prompt: "说明来源", expectations: [{ id: "tool", title: "工具", type: "tool_called", weight: 2, tool: "teamops", command: ["player", "list"] }] },
         ],
       }],
       expectations: [
-        { id: "games", title: "比赛数", type: "sql", points: 10, database: "teamops", query: "SELECT COUNT(*) AS count FROM games", expectedRows: [{ count: 162 }] },
-        { id: "creative", title: "清晰", type: "rubric", points: 20, criteria: "表达清晰", anchors: { 1: "混乱", 3: "基本清晰", 5: "非常清晰" }, requiredFacts: [], forbidden: [] },
+        { id: "games", title: "比赛数", type: "sql", weight: 1, database: "teamops", query: "SELECT COUNT(*) AS count FROM games", expectedRows: [{ count: 162 }] },
+        { id: "creative", title: "清晰", type: "rubric", weight: 2, criteria: "表达清晰", anchors: { 1: "混乱", 3: "基本清晰", 5: "非常清晰" }, requiredFacts: [], forbidden: [] },
       ],
     }],
     sourcePath: "multi.toml",
@@ -176,14 +176,14 @@ test("evaluation runner executes v2 turns in one session and scores expectations
     });
     assert.equal(promptCount, 2);
     assert.equal(result.results[0]?.turns.length, 2);
-    assert.equal(result.results[0]?.score.total, 80);
+    assert.equal(result.results[0]?.score.total, 83.33);
     assert.equal(result.results[0]?.status, "passed");
-    assert.equal(result.results[0]?.expectationResults.find((item) => item.expectationId === "answer")?.deductedPoints, 20);
+    assert.equal(result.results[0]?.expectationResults.find((item) => item.expectationId === "answer")?.deductedWeight, 2);
     assert.ok(result.results[0]?.checks.every((check) => check.code !== "quality.thresholds"));
     const markdown = await readFile(join(outputDirectory, "report.md"), "utf8");
-    assert.match(markdown, /80\.0\/100/);
+    assert.match(markdown, /83\.3\/100/);
     assert.match(markdown, /扣分原因/);
-    assert.match(markdown, /-20\.0/);
+    assert.match(markdown, /-2\.0/);
   } finally {
     await rm(outputDirectory, { recursive: true, force: true });
   }
@@ -193,8 +193,8 @@ test("evaluation runner rebuilds runtime sessions while preserving derived memor
   const repositoryRoot = join(import.meta.dirname, "../../..");
   const outputDirectory = await mkdtemp(join(tmpdir(), "bastion-eval-v3-"));
   const turns = [
-    { id: "save", prompt: "记住跨会话结论", expectations: [{ id: "saved", title: "保存完成", type: "response_contains" as const, points: 35, value: "已记住", caseSensitive: false }] },
-    { id: "recall", prompt: "之前的结论是什么？", expectations: [{ id: "recalled", title: "正确召回", type: "response_contains" as const, points: 35, value: "跨会话仍然可见", caseSensitive: false }] },
+    { id: "save", prompt: "记住跨会话结论", expectations: [{ id: "saved", title: "保存完成", type: "response_contains" as const, weight: 35, value: "已记住", caseSensitive: false }] },
+    { id: "recall", prompt: "之前的结论是什么？", expectations: [{ id: "recalled", title: "正确召回", type: "response_contains" as const, weight: 35, value: "跨会话仍然可见", caseSensitive: false }] },
   ];
   const config: EvaluationConfig = {
     schemaVersion: 3,
@@ -204,7 +204,7 @@ test("evaluation runner rebuilds runtime sessions while preserving derived memor
     agent: { thinking: "low" },
     reviewer: { provider: "fake", model: "reviewer" },
     passRules: { relevance: 4, usefulness: 4, groundedness: 4, databaseCorrectness: 4, executionQuality: 3, average: 4, minimumCasePassRate: 1, minimumSuitePassRate: 1 },
-    scoring: { passScore: 80, expectationPoints: 70, qualityPoints: 30 },
+    scoring: { passScore: 80 },
     prompts: [{
       id: "memory-across-sessions", title: "memory", tags: ["memory"], text: turns[0]!.prompt, writePermission: "allow",
       turns,
@@ -305,13 +305,13 @@ test("evaluation runner rebuilds runtime sessions while preserving derived memor
 test("evaluation runner stops later sessions after a session startup failure", async () => {
   const repositoryRoot = join(import.meta.dirname, "../../..");
   const outputDirectory = await mkdtemp(join(tmpdir(), "bastion-eval-v3-failure-"));
-  const firstTurn = { id: "first", prompt: "first", expectations: [{ id: "first-answer", title: "first", type: "response_contains" as const, points: 70, value: "ok", caseSensitive: false }] };
+  const firstTurn = { id: "first", prompt: "first", expectations: [{ id: "first-answer", title: "first", type: "response_contains" as const, weight: 70, value: "ok", caseSensitive: false }] };
   const secondTurn = { id: "second", prompt: "second", expectations: [] };
   const config: EvaluationConfig = {
     schemaVersion: 3, name: "failure", runs: 1, timeoutSeconds: 20,
     agent: { thinking: "low" }, reviewer: { provider: "fake", model: "reviewer" },
     passRules: { relevance: 4, usefulness: 4, groundedness: 4, databaseCorrectness: 4, executionQuality: 3, average: 4, minimumCasePassRate: 1, minimumSuitePassRate: 1 },
-    scoring: { passScore: 80, expectationPoints: 70, qualityPoints: 30 },
+    scoring: { passScore: 80 },
     prompts: [{ id: "startup-failure", title: "failure", tags: [], text: "first", turns: [firstTurn, secondTurn], sessions: [{ id: "one", turns: [firstTurn] }, { id: "two", turns: [secondTurn] }], expectations: [], writePermission: "deny" }],
     sourcePath: "failure.toml",
   };

@@ -15,9 +15,6 @@ model = "deepseek-v4-flash"
 minimum_case_pass_rate = 1.0
 minimum_suite_pass_rate = 1.0
 
-[scoring]
-pass_score = 80
-
 [[cases]]
 id = "season-follow-up"
 title = "赛季比赛数及依据追问"
@@ -32,7 +29,7 @@ prompt = "我们这个赛季有多少场比赛？请查询后回答。"
 id = "answer-162"
 title = "回答 162 场"
 type = "response_regex"
-points = 20
+weight = 4
 pattern = "162\\s*场?"
 flags = "u"
 
@@ -40,7 +37,7 @@ flags = "u"
 id = "calls-teamops"
 title = "调用 TeamOps 查询"
 type = "tool_called"
-points = 15
+weight = 3
 tool = "teamops"
 status = "succeeded"
 command_prefix = ["game", "list"]
@@ -53,7 +50,7 @@ prompt = "这个数字的依据是什么？"
 id = "source-grounded"
 title = "追问回答说明数据依据"
 type = "response_regex"
-points = 15
+weight = 3
 pattern = "(数据库|比赛记录|查询)"
 flags = "u"
 
@@ -61,7 +58,7 @@ flags = "u"
 id = "database-count"
 title = "数据库包含 162 场比赛"
 type = "sql"
-points = 10
+weight = 2
 database = "teamops"
 query = "SELECT COUNT(*) AS count FROM games"
 expected_rows = [{ count = 162 }]
@@ -70,7 +67,7 @@ expected_rows = [{ count = 162 }]
 id = "explanation-quality"
 title = "解释清晰且不夸大"
 type = "rubric"
-points = 10
+weight = 2
 criteria = "追问回答应简洁说明 162 场来自实际查询到的赛季比赛记录，不把推测包装成事实。"
 anchors = { "1" = "没有依据或明显编造", "3" = "给出基本依据但不够具体", "5" = "清楚说明查询来源、结论和边界" }
 required_facts = ["162 场来自比赛记录"]
