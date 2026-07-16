@@ -38,6 +38,24 @@ func TestSchemaV2AndPlayerKeyRetry(t *testing.T) {
 	}
 }
 
+func TestInitDoesNotTouchSchemaMetadataAtCurrentVersion(t *testing.T) {
+	store := newTestStore(t)
+	const sentinel = "2025-09-28T23:59:59Z"
+	if _, err := store.db.Exec(`UPDATE schema_meta SET updated_at=? WHERE id=1`, sentinel); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	var updatedAt string
+	if err := store.db.QueryRow(`SELECT updated_at FROM schema_meta WHERE id=1`).Scan(&updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if updatedAt != sentinel {
+		t.Fatalf("current schema init changed updated_at: got %q, want %q", updatedAt, sentinel)
+	}
+}
+
 func TestGameEventLogicalUpsertAndAppend(t *testing.T) {
 	store := newTestStore(t)
 	gameID, err := store.CreateGame(game.Game{Date: "2026-01-01", Opponent: "Opponent", BattingSide: game.BattingSideTop, Raw: "raw"}, nil, nil)

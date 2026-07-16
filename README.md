@@ -137,6 +137,8 @@ just --list
 .
 ├── assets/          # 品牌与文档资源
 ├── doc/             # PRD 与技术方案
+├── evals/           # Runtime 测评配置与说明
+├── fixtures/        # 开发与演示数据
 ├── material/        # 棒球规则原始材料
 ├── runtime/         # TypeScript Agent Runtime
 ├── teamops/         # Go 领域 CLI

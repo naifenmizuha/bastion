@@ -592,7 +592,11 @@ WHEN NEW.player_key IS NOT OLD.player_key BEGIN SELECT RAISE(ABORT,'player_key i
 `); err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO schema_meta(id,version,updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at`, schemaVersion, nowTimestamp())
+	_, err = tx.Exec(`
+INSERT INTO schema_meta(id,version,updated_at) VALUES(1,?,?)
+ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at
+WHERE schema_meta.version <> excluded.version
+`, schemaVersion, nowTimestamp())
 	return err
 }
 

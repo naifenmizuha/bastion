@@ -1,0 +1,74 @@
+schema_version = 2
+name = "Athletics 2025 多轮查询评测"
+description = "验证同一用例内的追问、工具路径、数据库事实与回答质量。"
+runs = 1
+timeout_seconds = 180
+
+[agent]
+thinking = "low"
+
+[reviewer]
+provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[pass_rules]
+minimum_case_pass_rate = 1.0
+minimum_suite_pass_rate = 1.0
+
+[[cases]]
+id = "season-follow-up"
+title = "赛季比赛数及依据追问"
+tags = ["read", "database", "multi-turn"]
+write_permission = "deny"
+
+[[cases.turns]]
+id = "count-games"
+prompt = "我们这个赛季有多少场比赛？请查询后回答。"
+
+[[cases.turns.expectations]]
+id = "answer-162"
+title = "回答 162 场"
+type = "response_regex"
+weight = 4
+pattern = "162\\s*场?"
+flags = "u"
+
+[[cases.turns.expectations]]
+id = "calls-teamops"
+title = "调用 TeamOps 查询"
+type = "tool_called"
+weight = 3
+tool = "teamops"
+status = "succeeded"
+command_prefix = ["game", "list"]
+
+[[cases.turns]]
+id = "explain-source"
+prompt = "这个数字的依据是什么？"
+
+[[cases.turns.expectations]]
+id = "source-grounded"
+title = "追问回答说明数据依据"
+type = "response_regex"
+weight = 3
+pattern = "(数据库|比赛记录|查询)"
+flags = "u"
+
+[[cases.expectations]]
+id = "database-count"
+title = "数据库包含 162 场比赛"
+type = "sql"
+weight = 2
+database = "teamops"
+query = "SELECT COUNT(*) AS count FROM games"
+expected_rows = [{ count = 162 }]
+
+[[cases.expectations]]
+id = "explanation-quality"
+title = "解释清晰且不夸大"
+type = "rubric"
+weight = 2
+criteria = "追问回答应简洁说明 162 场来自实际查询到的赛季比赛记录，不把推测包装成事实。"
+anchors = { "1" = "没有依据或明显编造", "3" = "给出基本依据但不够具体", "5" = "清楚说明查询来源、结论和边界" }
+required_facts = ["162 场来自比赛记录"]
+forbidden = ["声称使用了实际未调用的数据源"]
