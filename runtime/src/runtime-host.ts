@@ -10,7 +10,7 @@ import {
   type CreateAgentSessionRuntimeFactory,
   type ExtensionFactory,
   ModelRegistry,
-  SessionManager,
+  type SessionManager,
   SettingsManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -54,6 +54,10 @@ import type {
   PrincipalRole,
 } from "./derived-memory/types.ts";
 import { loadRuntimeEnv } from "./env-loader.ts";
+import {
+  createBastionSessionManager,
+  sessionDirectoryForAgent,
+} from "./session-storage.ts";
 
 const bastionHeaderExtension: ExtensionFactory = (pi) => {
   pi.on("session_start", (_event, context) => {
@@ -87,6 +91,8 @@ export interface BastionRuntimeHostOptions {
   model?: { provider: string; id: string };
   /** Optional per-session thinking level. */
   thinkingLevel?: ThinkingLevel;
+  /** Explicit session target used by headless hosts and isolated tests. */
+  sessionManager?: SessionManager;
 }
 
 export interface BastionRuntimeHost {
@@ -197,6 +203,16 @@ export async function createBastionRuntimeHost(
   const modelRoutingModels = modelRoutingConfig
     ? await resolveModelRoutingModels(modelRegistry, modelRoutingConfig)
     : undefined;
+  const sessionManager = options.sessionManager ??
+    await createBastionSessionManager({
+      cwd: repoRoot,
+      ...(options.agentDir !== undefined
+        ? {
+            sessionDirectory: sessionDirectoryForAgent(repoRoot, agentDir),
+            migrateLegacy: false,
+          }
+        : {}),
+    });
 
   const cliOptions = {
     executablePath: options.executablePath ?? join(repoRoot, "out", "teamops"),
@@ -314,7 +330,7 @@ export async function createBastionRuntimeHost(
     runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: repoRoot,
       agentDir,
-      sessionManager: SessionManager.create(repoRoot),
+      sessionManager,
     });
   } catch (error) {
     derivedMemoryStore.close();

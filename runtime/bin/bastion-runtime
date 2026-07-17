@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+runtime_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$runtime_dir"
+exec node --import tsx src/main.ts "$@"
