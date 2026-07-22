@@ -96,7 +96,7 @@ Runtime 会从 `runtime/.env.local` 和 `runtime/.env` 加载尚未在 shell 中
 
 ### 通过 cc-connect 使用 Runtime
 
-仓库提供 `runtime/bin/bastion-runtime` 作为稳定的 CLI 入口。请先执行 `pnpm install`，然后在 cc-connect 的项目配置中使用脚本的绝对路径：
+仓库提供 `out/bastion-runtime` 作为稳定的 CLI 入口。请先执行 `pnpm install`，然后在 cc-connect 的项目配置中使用脚本的绝对路径：
 
 ```toml
 [[projects]]
@@ -107,7 +107,7 @@ type = "pi"
 
 [projects.agent.options]
 work_dir = "/absolute/path/to/bastion"
-cmd = "/absolute/path/to/bastion/runtime/bin/bastion-runtime"
+cmd = "/absolute/path/to/bastion/out/bastion-runtime"
 rpc = true
 mode = "default"
 ```
@@ -117,10 +117,10 @@ mode = "default"
 一次性只读调用也可以使用 JSON 模式：
 
 ```bash
-runtime/bin/bastion-runtime --mode json -p "列出最近的比赛"
+out/bastion-runtime --mode json -p "列出最近的比赛"
 ```
 
-JSON 模式不提供交互式确认，因此不适合可能写入球队数据的任务。Runtime 同时兼容 `-p "prompt"` 和 `echo "prompt" | ... -p` 两种 Pi 调用方式；可用 `--session` 或 `--session-id` 恢复指定会话，并用 `--model provider/model`、`--thinking high` 覆盖当前进程的模型设置。运行 `runtime/bin/bastion-runtime --help` 查看完整参数。
+JSON 模式不提供交互式确认，因此不适合可能写入球队数据的任务。Runtime 同时兼容 `-p "prompt"` 和 `echo "prompt" | ... -p` 两种 Pi 调用方式；可用 `--session` 或 `--session-id` 恢复指定会话，并用 `--model provider/model`、`--thinking high` 覆盖当前进程的模型设置。运行 `out/bastion-runtime --help` 查看完整参数。
 
 较旧的 cc-connect Pi adapter 即使配置了 `rpc = true` 也可能仍调用 JSON 模式；该模式可完成只读对话和会话恢复，但无法转发 TeamOps 写入确认。需要远程写操作时，应使用实际支持 Pi RPC UI 转发的 cc-connect 版本，并确认日志中启动参数为 `--mode rpc`。
 

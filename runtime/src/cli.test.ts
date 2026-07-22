@@ -84,7 +84,7 @@ describe("runtime CLI arguments", () => {
   });
 
   it("runs the repository wrapper independently of the caller cwd", () => {
-    const wrapper = fileURLToPath(new URL("../bin/bastion-runtime", import.meta.url));
+    const wrapper = fileURLToPath(new URL("../../out/bastion-runtime", import.meta.url));
     const cwd = mkdtempSync(resolve(tmpdir(), "bastion-wrapper-"));
     const result = spawnSync(wrapper, ["--version"], {
       cwd,

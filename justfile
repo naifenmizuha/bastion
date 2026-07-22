@@ -120,4 +120,4 @@ go-demo-all: go-demo-player go-demo-report go-demo-game go-demo-game-pieces go-d
     @echo "所有功能演示完成"
 
 clean:
-    rm -rf {{out_dir}}
+    find {{out_dir}} -depth -mindepth 1 ! -path '{{out_dir}}/bastion-runtime' -delete

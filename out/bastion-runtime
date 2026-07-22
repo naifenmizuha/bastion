@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime_dir="$repo_dir/runtime"
+cd "$runtime_dir"
+
+# Node's built-in fetch/Undici does not use HTTP(S)_PROXY by default. The
+# runtime's model providers use that stack, so opt in before Node starts while
+# still allowing operators to override the setting explicitly.
+: "${NODE_USE_ENV_PROXY:=1}"
+export NODE_USE_ENV_PROXY
+
+exec node --import tsx src/main.ts "$@"
