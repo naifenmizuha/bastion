@@ -9,4 +9,5 @@
 /eval-results
 /.pnpm-store
 /prd
-/out
+/out/*
+!/out/bastion-runtime

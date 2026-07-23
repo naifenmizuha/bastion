@@ -1,0 +1,31 @@
+language = "zh"
+
+[[projects]]
+name = "bastion"
+
+[projects.agent]
+type = "pi"
+
+[projects.agent.options]
+work_dir = "/home/naifen/code/bastion"
+cmd = "/home/naifen/code/bastion/out/bastion-runtime"
+rpc = true
+mode = "default"
+
+[[projects.platforms]]
+type = "qqbot"
+
+[projects.platforms.options]
+app_id = ""
+app_secret = ""
+# 第一次调试可临时放开，获取 openid 后应改成明确名单
+allow_from = "*"
+
+# 群聊中每个用户使用独立会话
+share_session_in_channel = false
+
+# 没申请QQ Markdown消息权限时保持 false
+markdown_support = true
+
+# 默认已包含群聊@消息与按键回调
+intents = 100663296
